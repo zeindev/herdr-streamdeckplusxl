@@ -135,28 +135,58 @@ export class HerdrClient {
     this.teardown(new Error("client stopped"));
   }
 
-  /** Sends a request and resolves with its result, rejecting on an error reply. */
+  /**
+   * Sends one request on a connection of its own and resolves with its result.
+   *
+   * Herdr closes a connection as soon as it answers a request, and sending a
+   * second request on the subscription connection makes it close that too —
+   * taking the event stream with it. So every request gets a fresh socket and
+   * the subscription connection carries nothing but its own handshake.
+   */
   request(method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-    if (!this.socket || !this.connected) {
-      return Promise.reject(new Error(`cannot call ${method}: not connected to Herdr`));
-    }
-    return this.dispatch(this.socket, method, params);
+    return new Promise((resolve, reject) => {
+      const socket = connect(this.socketPath);
+      const decoder = new NdjsonDecoder();
+      let settled = false;
+      const finish = (outcome: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        socket.destroy();
+        outcome();
+      };
+      const timer = setTimeout(
+        () => finish(() => reject(new Error(`${method} timed out after ${this.requestTimeoutMs}ms`))),
+        this.requestTimeoutMs
+      );
+
+      socket.on("connect", () => this.write(socket, { id: "1", method, params }, () => {}));
+      socket.on("data", (chunk: Buffer) => {
+        for (const line of decoder.push(chunk.toString())) {
+          const message = decodeMessage(line);
+          if (message.kind !== "reply") continue;
+          if (message.ok) finish(() => resolve(message.result));
+          else finish(() => reject(new HerdrRequestError(message.error)));
+        }
+      });
+      socket.on("error", (error) => finish(() => reject(error)));
+      socket.on("close", () => finish(() => reject(new Error(`${method} closed before replying`))));
+    });
   }
 
   /**
-   * Sends one request on a specific socket and awaits its reply. Takes the
-   * socket explicitly so the subscription handshake can run before the client
-   * considers itself connected.
+   * Sends the subscription handshake on the long-lived connection and awaits
+   * its acknowledgement. This is the only request that connection ever carries.
    */
-  private dispatch(socket: Socket, method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  private dispatchSubscribe(socket: Socket, params: Record<string, unknown>): Promise<Record<string, unknown>> {
     const id = `sd-${++this.nextRequestId}`;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`${method} timed out after ${this.requestTimeoutMs}ms`));
+        reject(new Error(`events.subscribe timed out after ${this.requestTimeoutMs}ms`));
       }, this.requestTimeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      this.write(socket, { id, method, params }, (error) => {
+      this.write(socket, { id, method: "events.subscribe", params }, (error) => {
         if (!error) return;
         this.settlePending(id)?.reject(error);
       });
@@ -215,7 +245,7 @@ export class HerdrClient {
    */
   private async subscribe(socket: Socket): Promise<void> {
     try {
-      await this.dispatch(socket, "events.subscribe", {
+      await this.dispatchSubscribe(socket, {
         subscriptions: GLOBAL_SUBSCRIPTIONS.map((type) => ({ type }))
       });
       this.setConnected(true);

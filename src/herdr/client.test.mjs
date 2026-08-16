@@ -12,11 +12,19 @@ import { NdjsonDecoder } from "../../.preview/herdr/decode.js";
  * A stand-in Herdr server. Speaks the same newline-delimited JSON, records what
  * it was asked, and can be stopped and restarted on the same socket path so
  * reconnect behaviour is exercised for real rather than simulated.
+ *
+ * It copies one behaviour of the real server that is easy to miss and severe to
+ * get wrong: **Herdr closes a connection as soon as it answers a request.**
+ * Only `events.subscribe` keeps its connection open, for the event stream, and
+ * sending any further request on that connection closes it too — taking the
+ * subscription down. A permissive fake hides this completely.
  */
 class FakeHerdr {
   constructor(path) {
     this.path = path;
     this.requests = [];
+    /** Requests that arrived on a subscription connection and caused a hang-up. */
+    this.hangUps = [];
     this.sockets = new Set();
     this.replyWith = (request) => ({ id: request.id, result: { type: "ok", method: request.method } });
   }
@@ -29,12 +37,26 @@ class FakeHerdr {
       // Reuses the production decoder rather than reimplementing the framing,
       // so the fake cannot drift from the wire format under test.
       const decoder = new NdjsonDecoder();
+      let subscribed = false;
       socket.on("data", (chunk) => {
         for (const line of decoder.push(chunk.toString())) {
           const request = JSON.parse(line);
           this.requests.push(request);
+
+          if (subscribed) {
+            // A second request on the subscription connection: the real server
+            // hangs up, losing the event stream.
+            this.hangUps.push(request.method);
+            socket.destroy();
+            return;
+          }
+
           const reply = this.replyWith(request);
           if (reply) socket.write(JSON.stringify(reply) + "\n");
+
+          if (request.method === "events.subscribe") subscribed = true;
+          // Every other request is answered and then hung up on.
+          else setImmediate(() => socket.destroy());
         }
       });
     });
@@ -175,18 +197,6 @@ test("connected means subscribed, not merely socket-open", async () => {
   });
 });
 
-test("a request that gets no reply rejects instead of hanging", async () => {
-  await withServer(async (server, makeClient) => {
-    server.replyWith = (request) =>
-      request.method === "events.subscribe" ? { id: request.id, result: { type: "subscription_started" } } : null;
-    const client = makeClient({ requestTimeoutMs: 60 });
-    await client.start();
-    await until(() => client.connected, "the connection");
-
-    await assert.rejects(client.request("pane.list", {}), /timed out/);
-  });
-});
-
 test("pushed events reach subscribers as typed events", async () => {
   await withServer(async (server, makeClient) => {
     const client = makeClient();
@@ -226,28 +236,63 @@ test("an unrecognised event does not disturb the events around it", async () => 
   });
 });
 
-test("a request resolves with its own reply even when replies arrive out of order", async () => {
+test("a request never touches the subscription connection, so the event stream survives", async () => {
   await withServer(async (server, makeClient) => {
-    server.replyWith = (request) => {
-      if (request.method === "events.subscribe") return { id: request.id, result: { type: "subscription_started" } };
-      return null; // answered manually below
-    };
+    server.replyWith = (request) =>
+      request.method === "events.subscribe"
+        ? { id: request.id, result: { type: "subscription_started" } }
+        : { id: request.id, result: { panes: [] } };
+
+    const client = makeClient();
+    const seen = [];
+    client.onEvent((event) => seen.push(event.event));
+    await client.start();
+    await until(() => client.connected, "the connection");
+
+    assert.deepEqual(await client.request("pane.list", {}), { panes: [] });
+    assert.deepEqual(await client.request("workspace.list", {}), { panes: [] });
+
+    // The real server hangs up if a request arrives on the subscription
+    // connection. Nothing may ever provoke that.
+    assert.deepEqual(server.hangUps, [], "no request may share the subscription connection");
+    assert.ok(client.connected, "the event stream is still up");
+    server.emit("pane_focused", { pane: { pane_id: "w1:p1" } });
+    await until(() => seen.length === 1, "events still flowing after two requests");
+  });
+});
+
+test("concurrent requests each get their own reply", async () => {
+  await withServer(async (server, makeClient) => {
+    server.replyWith = (request) =>
+      request.method === "events.subscribe"
+        ? { id: request.id, result: { type: "subscription_started" } }
+        : { id: request.id, result: { method: request.method } };
+
     const client = makeClient();
     await client.start();
     await until(() => client.connected, "the connection");
 
-    const slow = client.request("pane.list", {});
-    const fast = client.request("workspace.list", {});
-    await until(() => server.requests.length === 3, "both requests to arrive");
+    const [panes, workspaces] = await Promise.all([
+      client.request("pane.list", {}),
+      client.request("workspace.list", {})
+    ]);
+    assert.deepEqual(panes, { method: "pane.list" });
+    assert.deepEqual(workspaces, { method: "workspace.list" });
+    assert.deepEqual(server.hangUps, []);
+  });
+});
 
-    const [, slowRequest, fastRequest] = server.requests;
-    for (const socket of server.sockets) {
-      socket.write(JSON.stringify({ id: fastRequest.id, result: { which: "fast" } }) + "\n");
-      socket.write(JSON.stringify({ id: slowRequest.id, result: { which: "slow" } }) + "\n");
-    }
+test("a request that is hung up on without a reply rejects", async () => {
+  await withServer(async (server, makeClient) => {
+    server.replyWith = (request) =>
+      request.method === "events.subscribe" ? { id: request.id, result: { type: "subscription_started" } } : null;
 
-    assert.deepEqual(await fast, { which: "fast" });
-    assert.deepEqual(await slow, { which: "slow" });
+    const client = makeClient({ requestTimeoutMs: 2000 });
+    await client.start();
+    await until(() => client.connected, "the connection");
+
+    await assert.rejects(client.request("pane.list", {}), /closed before replying|timed out/);
+    assert.ok(client.connected, "a failed request must not disturb the event stream");
   });
 });
 
@@ -296,15 +341,35 @@ test("the client reconnects and resubscribes after the server restarts", async (
   });
 });
 
-test("a request made while disconnected rejects rather than hanging forever", async () => {
+test("a request rejects when Herdr is not there at all", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "herdr-client-test-"));
+  const client = new HerdrClient({ socketPath: join(directory, "herdr.sock"), reconnectDelayMs: 5_000 });
+  try {
+    await client.start();
+    await assert.rejects(client.request("pane.list", {}), /ENOENT|closed before replying|timed out/);
+  } finally {
+    await client.stop();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("losing the event stream does not disturb requests, which have their own connections", async () => {
   await withServer(async (server, makeClient) => {
+    server.replyWith = (request) =>
+      request.method === "events.subscribe"
+        ? { id: request.id, result: { type: "subscription_started" } }
+        : { id: request.id, result: { ok: true } };
+
     const client = makeClient({ reconnectDelayMs: 5_000 });
     await client.start();
     await until(() => client.connected, "the connection");
 
-    const pending = client.request("pane.list", {});
     server.dropConnections();
-    await assert.rejects(pending, /connection lost/i);
+    await until(() => !client.connected, "the stream to drop");
+
+    // The stream is down and not yet retried, but the server still listens, so
+    // a request opens its own connection and succeeds regardless.
+    assert.deepEqual(await client.request("pane.list", {}), { ok: true });
   });
 });
 

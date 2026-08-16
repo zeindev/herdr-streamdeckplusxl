@@ -9,3 +9,9 @@ dev.herdr.streamdeck.sdPlugin/herdr-path.txt
 *.streamDeckPlugin
 *.streamDeckProfile
 !dev.herdr.streamdeck.sdPlugin/profiles/Herdr Stream Deck+.streamDeckProfile
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/

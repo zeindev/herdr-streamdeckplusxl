@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "herdr_streamdeckplusxl",
+  "project_id": "282b47aa-7aad-4ce0-a99c-14332ecdfb79"
+}

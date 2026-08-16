@@ -5,13 +5,11 @@
  * `herdr api schema --json` and live traffic on the server socket.
  */
 
-/** Protocol revision this vocabulary was written against. */
-export const SUPPORTED_PROTOCOL = 19;
-
 /**
- * Every event Herdr can push. Note these are underscore-separated, while the
- * subscription names that request them are dot-separated — the two vocabularies
- * are deliberately distinct and must not be derived from one another.
+ * Every event Herdr can push on the ordinary event stream. These are
+ * underscore-separated, while the subscription names that request them are
+ * dot-separated — two distinct vocabularies that must not be derived from one
+ * another.
  */
 export const EVENT_KINDS = [
   "workspace_created",
@@ -51,13 +49,21 @@ export function isEventKind(value: unknown): value is EventKind {
 }
 
 /**
- * Subscriptions that need no arguments, so one call covers the whole session.
+ * Subscriptions that take no arguments, so one call covers every workspace and
+ * pane for as long as the connection lives.
  *
- * The three omitted subscriptions are per-pane and each require a `pane_id`:
- * `pane.agent_status_changed`, `pane.scroll_changed`, and `pane.output_matched`
- * (which also requires `source` and `match`). Subscribing to agent status per
- * pane is unnecessary — `pane_updated` carries `agent_status` for every pane
- * and arrives on this global subscription.
+ * Herdr offers 27 subscriptions in total. The three omitted here are per-pane:
+ * `pane.agent_status_changed` and `pane.scroll_changed` each require a
+ * `pane_id`, and `pane.output_matched` additionally requires `source` and
+ * `match`. They also deliver a *different* envelope — see `SUBSCRIPTION_EVENT_KINDS`.
+ *
+ * Two event kinds therefore never arrive on this subscription set:
+ *
+ * - `pane_agent_status_changed`, which is not needed: `pane_updated` carries
+ *   `agent_status` for every pane and does arrive globally.
+ * - `pane_output_changed`, which has no subscription of any kind. Output
+ *   matching is offered only as the per-pane `pane.output_matched`, so this
+ *   event is unreachable rather than merely unsubscribed.
  */
 export const GLOBAL_SUBSCRIPTIONS = [
   "workspace.created",
@@ -86,9 +92,18 @@ export const GLOBAL_SUBSCRIPTIONS = [
   "layout.updated"
 ] as const;
 
-export type GlobalSubscription = (typeof GLOBAL_SUBSCRIPTIONS)[number];
-
-export type Subscription = { type: string; [argument: string]: unknown };
+/**
+ * The per-pane subscriptions deliver their own envelope, whose `event` is
+ * dot-named and whose `data` carries no `type` field. Nothing subscribes to
+ * them today, so this client reports them as unrecognised rather than carrying
+ * speculative decoding for them. Recorded here so that a future per-pane
+ * subscriber knows the envelope differs and does not assume otherwise.
+ */
+export const SUBSCRIPTION_EVENT_KINDS = [
+  "pane.output_matched",
+  "pane.agent_status_changed",
+  "pane.scroll_changed"
+] as const;
 
 export type HerdrRequest = {
   id: string;
@@ -111,9 +126,3 @@ export type HerdrMessage =
   | ({ kind: "reply" } & HerdrReply)
   /** A well-formed line that is neither, kept rather than thrown so callers can log it. */
   | { kind: "unknown"; raw: string };
-
-/**
- * A request that failed to parse never reaches id extraction, so the server
- * replies with an empty id. Such a reply cannot be correlated to its caller.
- */
-export const UNCORRELATED_ID = "";

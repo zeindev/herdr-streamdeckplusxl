@@ -1,8 +1,11 @@
 /**
  * Prints live Herdr events, and optionally records them as a test fixture.
  *
- *   node --experimental-strip-types scripts/capture-events.mjs
- *   node --experimental-strip-types scripts/capture-events.mjs --seconds 30 --out src/herdr/fixtures/session.json
+ * Requires a build first, since it runs against compiled output:
+ *
+ *   npm run check          # compiles src into .preview
+ *   npm run capture
+ *   npm run capture -- --seconds 30 --out src/herdr/fixtures/capture.json
  *
  * Recording real traffic rather than inventing payloads is deliberate: the
  * reducer tests built on these fixtures should fail when Herdr's contract
@@ -11,8 +14,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import { HerdrClient, defaultSocketPath } from "../src/herdr/client.ts";
-import { EVENT_KINDS } from "../src/herdr/protocol.ts";
+import { HerdrClient, defaultSocketPath } from "../.preview/herdr/client.js";
+import { EVENT_KINDS } from "../.preview/herdr/protocol.js";
 
 function option(name, fallback) {
   const index = process.argv.indexOf(`--${name}`);

@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { HerdrClient } from "./client.ts";
+import { HerdrClient } from "../../.preview/herdr/client.js";
+import { NdjsonDecoder } from "../../.preview/herdr/decode.js";
 
 /**
  * A stand-in Herdr server. Speaks the same newline-delimited JSON, records what
@@ -25,15 +26,11 @@ class FakeHerdr {
       this.sockets.add(socket);
       socket.on("close", () => this.sockets.delete(socket));
       socket.on("error", () => {});
-      let buffer = "";
+      // Reuses the production decoder rather than reimplementing the framing,
+      // so the fake cannot drift from the wire format under test.
+      const decoder = new NdjsonDecoder();
       socket.on("data", (chunk) => {
-        buffer += chunk.toString();
-        let boundary = buffer.indexOf("\n");
-        while (boundary >= 0) {
-          const line = buffer.slice(0, boundary);
-          buffer = buffer.slice(boundary + 1);
-          boundary = buffer.indexOf("\n");
-          if (!line.trim()) continue;
+        for (const line of decoder.push(chunk.toString())) {
           const request = JSON.parse(line);
           this.requests.push(request);
           const reply = this.replyWith(request);
@@ -118,6 +115,75 @@ test("connecting subscribes to every global event in one call", async () => {
       types.every((type) => Object.keys(subscribes[0].params.subscriptions[types.indexOf(type)]).length === 1),
       "global subscriptions take no arguments"
     );
+  });
+});
+
+test("a refused subscription is reported and never reads as connected", async () => {
+  await withServer(async (server, makeClient) => {
+    server.replyWith = (request) => ({
+      id: request.id,
+      error: { code: "invalid_request", message: "unsupported subscription" }
+    });
+    const client = makeClient({ reconnectDelayMs: 5_000 });
+    const failures = [];
+    client.onSubscribeFailure((error) => failures.push(error));
+
+    await client.start();
+    await until(() => failures.length > 0, "the subscribe failure to be reported");
+
+    // An open socket that Herdr refused to subscribe would deliver nothing, so
+    // reporting it as connected would leave the device silently stale forever.
+    assert.equal(client.connected, false);
+    assert.match(failures[0].message, /unsupported subscription/);
+  });
+});
+
+test("a subscription that is never answered does not leave the client connected", async () => {
+  await withServer(async (server, makeClient) => {
+    server.replyWith = () => null; // accept the socket, answer nothing
+    const client = makeClient({ requestTimeoutMs: 60, reconnectDelayMs: 5_000 });
+    const failures = [];
+    client.onSubscribeFailure((error) => failures.push(error));
+
+    await client.start();
+    await until(() => failures.length > 0, "the subscribe to time out");
+
+    assert.equal(client.connected, false);
+    assert.match(failures[0].message, /timed out/);
+  });
+});
+
+test("connected means subscribed, not merely socket-open", async () => {
+  await withServer(async (server, makeClient) => {
+    let acknowledge;
+    server.replyWith = (request) => {
+      if (request.method !== "events.subscribe") return null;
+      acknowledge = () => {
+        for (const socket of server.sockets) {
+          socket.write(JSON.stringify({ id: request.id, result: { type: "subscription_started" } }) + "\n");
+        }
+      };
+      return null; // held until the test releases it
+    };
+    const client = makeClient({ requestTimeoutMs: 5_000 });
+    await client.start();
+    await until(() => acknowledge !== undefined, "the subscribe to reach the server");
+
+    assert.equal(client.connected, false, "still waiting on the acknowledgement");
+    acknowledge();
+    await until(() => client.connected, "connection once the subscription is acknowledged");
+  });
+});
+
+test("a request that gets no reply rejects instead of hanging", async () => {
+  await withServer(async (server, makeClient) => {
+    server.replyWith = (request) =>
+      request.method === "events.subscribe" ? { id: request.id, result: { type: "subscription_started" } } : null;
+    const client = makeClient({ requestTimeoutMs: 60 });
+    await client.start();
+    await until(() => client.connected, "the connection");
+
+    await assert.rejects(client.request("pane.list", {}), /timed out/);
   });
 });
 
@@ -268,12 +334,10 @@ test("the client waits for a server that is not listening yet", async () => {
     assert.equal(client.connected, false, "nothing to connect to yet");
 
     await server.start();
-    await until(
-      () => server.requests.filter((r) => r.method === "events.subscribe").length === 1,
-      "a subscribe once the server appears",
-      3000
-    );
-    assert.equal(client.connected, true);
+    // Connected trails the subscribe by one round trip, so wait for the end
+    // state rather than asserting the instant the request lands.
+    await until(() => client.connected, "connection once the server appears", 3000);
+    assert.equal(server.requests.filter((r) => r.method === "events.subscribe").length, 1);
   } finally {
     await client.stop();
     await server.stop();

@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { NdjsonDecoder, decodeMessage } from "./decode.ts";
-import { EVENT_KINDS, GLOBAL_SUBSCRIPTIONS, isEventKind } from "./protocol.ts";
+import { NdjsonDecoder, decodeMessage } from "../../.preview/herdr/decode.js";
+import {
+  EVENT_KINDS,
+  GLOBAL_SUBSCRIPTIONS,
+  SUBSCRIPTION_EVENT_KINDS,
+  isEventKind
+} from "../../.preview/herdr/protocol.js";
 
 test("the decoder reassembles lines split across arbitrary chunk boundaries", () => {
   const decoder = new NdjsonDecoder();
@@ -60,6 +65,18 @@ test("malformed and unrecognised lines decode as unknown rather than throwing", 
   assert.equal(decodeMessage("[1,2,3]").kind, "unknown");
   assert.equal(decodeMessage(JSON.stringify({ event: "no_such_event", data: {} })).kind, "unknown");
   assert.equal(decodeMessage(JSON.stringify({ nothing: true })).kind, "unknown");
+});
+
+test("per-pane subscription events use a different envelope and are reported as unknown", () => {
+  // Their `event` is dot-named and their `data` carries no `type`, so they are
+  // not the 26-kind event stream. Nothing subscribes per-pane today; this locks
+  // in what would happen if something did, so the shape difference cannot bite
+  // silently later.
+  for (const kind of SUBSCRIPTION_EVENT_KINDS) {
+    const message = decodeMessage(JSON.stringify({ event: kind, data: { pane_id: "w1:p1" } }));
+    assert.equal(message.kind, "unknown", `${kind} is not an ordinary event`);
+    assert.ok(!isEventKind(kind));
+  }
 });
 
 test("the event vocabulary is complete and distinct from the subscription vocabulary", () => {

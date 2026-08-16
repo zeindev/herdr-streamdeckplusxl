@@ -1,11 +1,6 @@
 {
   "extends": "@tsconfig/node20/tsconfig.json",
   "compilerOptions": {
-    // Source imports carry explicit .ts extensions so Node's type stripping can
-    // resolve them directly when running tests. Emit is Rollup's job, so tsc
-    // never writes output and the two settings do not conflict.
-    "allowImportingTsExtensions": true,
-    "noEmit": true,
     "customConditions": ["node"],
     "module": "ES2022",
     "moduleResolution": "Bundler",

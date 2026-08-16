@@ -1,4 +1,4 @@
-import { isEventKind, type HerdrMessage } from "./protocol.ts";
+import { isEventKind, type HerdrMessage } from "./protocol.js";
 
 /**
  * Reassembles newline-delimited JSON from a stream that splits wherever the

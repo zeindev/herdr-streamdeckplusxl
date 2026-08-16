@@ -2,15 +2,37 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { decodeMessage } from "./decode.ts";
-import { isEventKind } from "./protocol.ts";
+import { decodeMessage } from "../../.preview/herdr/decode.js";
+import { EVENT_KINDS, isEventKind } from "../../.preview/herdr/protocol.js";
 
 /**
  * Real traffic recorded from a running Herdr by `scripts/capture-events.mjs`.
  * Its job is to fail when Herdr's contract drifts — something hand-written
  * sample payloads could never do.
  */
-const fixture = JSON.parse(readFileSync(new URL("./fixtures/session.json", import.meta.url), "utf8"));
+const fixture = JSON.parse(readFileSync(new URL("./fixtures/capture.json", import.meta.url), "utf8"));
+const capturedKinds = new Set(fixture.events.map((event) => event.event));
+
+/**
+ * Event kinds the capture does not contain, each with the reason. Anything
+ * building on this fixture must know which payload shapes are still unproven
+ * rather than assuming full coverage.
+ */
+const UNCAPTURED = {
+  // Unreachable on this subscription set. See GLOBAL_SUBSCRIPTIONS.
+  pane_output_changed: "no subscription of any kind exists",
+  pane_agent_status_changed: "only offered as a per-pane subscription",
+  // Simply not provoked by the capture run yet.
+  workspace_updated: "not provoked",
+  workspace_metadata_updated: "not provoked",
+  workspace_moved: "needs a reorder gesture",
+  workspace_reordered: "needs a reorder gesture",
+  worktree_opened: "not provoked",
+  tab_moved: "needs a move gesture",
+  pane_closed: "not provoked",
+  pane_moved: "needs a move gesture",
+  pane_agent_detected: "needs an agent to start inside a captured pane"
+};
 
 test("every captured event decodes as a recognised event", () => {
   assert.ok(fixture.events.length > 0, "the fixture must not be empty");
@@ -23,11 +45,31 @@ test("every captured event decodes as a recognised event", () => {
   }
 });
 
-test("the capture covers the events this product depends on", () => {
-  const kinds = new Set(fixture.events.map((event) => event.event));
-  for (const required of ["pane_updated", "pane_created", "tab_created", "workspace_created", "worktree_created"]) {
-    assert.ok(kinds.has(required), `expected ${required} in the capture`);
+test("the capture covers the events the workstream model is built on", () => {
+  for (const required of [
+    "workspace_created",
+    "workspace_renamed",
+    "workspace_closed",
+    "worktree_created",
+    "worktree_removed",
+    "pane_created",
+    "pane_updated",
+    "pane_focused",
+    "pane_exited",
+    "tab_created",
+    "tab_closed",
+    "layout_updated"
+  ]) {
+    assert.ok(capturedKinds.has(required), `expected ${required} in the capture`);
   }
+});
+
+test("uncaptured event kinds are accounted for, so coverage gaps stay visible", () => {
+  const unexplained = EVENT_KINDS.filter((kind) => !capturedKinds.has(kind) && !(kind in UNCAPTURED));
+  assert.deepEqual(unexplained, [], "a newly missing event kind needs a reason recorded here");
+
+  const nowCaptured = Object.keys(UNCAPTURED).filter((kind) => capturedKinds.has(kind));
+  assert.deepEqual(nowCaptured, [], "a kind that is now captured should be dropped from UNCAPTURED");
 });
 
 test("a pane payload carries the fields the workstream model is built on", () => {
@@ -38,12 +80,22 @@ test("a pane payload carries the fields the workstream model is built on", () =>
   assert.ok(["idle", "working", "blocked", "done", "unknown"].includes(pane.agent_status));
 });
 
+test("pane_exited identifies its pane but carries no exit status", () => {
+  // Recorded so the attention design cannot assume otherwise: Herdr 0.8.0 sends
+  // only pane_id, workspace_id, and type. There is no exit code, so a crashed
+  // service is indistinguishable from a pane closed on purpose using this event
+  // alone. ADR-0005's native floor is narrowed accordingly.
+  const exited = fixture.events.find((event) => event.event === "pane_exited").data;
+  assert.deepEqual(Object.keys(exited).sort(), ["pane_id", "type", "workspace_id"]);
+});
+
 test("pane_updated dominates the capture, which is why consumers must coalesce", () => {
   // Recorded behaviour, not a preference: pane_updated fires on every output
-  // revision. A consumer that redraws per event would redraw dozens of times a
-  // second, so coalescing is a requirement of anything built on this client.
-  const total = fixture.events.length;
+  // revision, arriving hundreds of times over a short run. A consumer that
+  // redrew per event would redraw dozens of times a second, so coalescing is a
+  // requirement of anything built on this client. The capture is capped per
+  // kind, so the live ratio is far more extreme than what is stored here.
   const paneUpdates = fixture.events.filter((event) => event.event === "pane_updated").length;
   assert.ok(paneUpdates > 0);
-  assert.ok(total > paneUpdates, "the capture is capped per kind so other events survive");
+  assert.ok(fixture.events.length > paneUpdates, "the per-kind cap lets other events survive");
 });

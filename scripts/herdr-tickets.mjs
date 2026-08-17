@@ -49,6 +49,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "n
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parseContext, worktreeFrom } from "./herdr-plugin-context.mjs";
+
 export const DEFAULT_PROJECT_KEY_PATTERN = "[A-Z][A-Z0-9]+-\\d+";
 
 const SOURCE = "herdr-plugin-tickets";
@@ -181,16 +183,6 @@ export function buildReportArgs({ workspaceId, ticketKeys, seq }) {
   return [...base, "--token", `${TOKEN_NAME}=${ticketKeys.join(",")}`];
 }
 
-/** Best-effort parse of the plugin invocation context Herdr injects. Never throws. */
-function parseContext(raw) {
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-
 /**
  * Makes sure this worktree's `post-commit` hook calls back into this script,
  * so a commit landing re-publishes the ticket list (ADR-0006). Idempotent
@@ -228,7 +220,7 @@ export function run({ env, cwd: providedCwd, installHook, herdrBin = "herdr", re
   if (!workspaceId) return { ran: false };
 
   const context = parseContext(env.HERDR_PLUGIN_CONTEXT_JSON);
-  const worktree = context.worktree ?? {};
+  const worktree = worktreeFrom(context);
   const cwd = providedCwd ?? worktree.checkout_path ?? process.cwd();
   const repoKey = worktree.repo_key;
   const branch = worktree.branch ?? currentBranch(cwd);

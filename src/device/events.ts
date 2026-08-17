@@ -1,5 +1,6 @@
 import type { HerdrEvent } from "../herdr/protocol.js";
 import type { HerdrSnapshot, ResolvedThemeSnapshot, WorktreeEntry } from "../model.js";
+import type { SlotBindings } from "./slots.js";
 
 /** A physical key, identified by the device it belongs to and where it sits. */
 export type KeyAddress = { deviceId: string; column: number; row: number };
@@ -26,8 +27,11 @@ export type DeviceEvent =
   /** `at` is stamped by the adapter so the reducer needs no clock of its own. */
   | { kind: "herdr-event"; event: HerdrEvent; at: number }
   | { kind: "theme-changed"; theme: ResolvedThemeSnapshot | null }
-  | { kind: "key-down"; key: KeyAddress }
-  | { kind: "key-up"; key: KeyAddress }
+  /** Slot assignments read back from storage when the plugin starts. */
+  | { kind: "settings-loaded"; slots: SlotBindings }
+  /** `at` is stamped by the adapter, so a hold can be told from a tap. */
+  | { kind: "key-down"; key: KeyAddress; at: number }
+  | { kind: "key-up"; key: KeyAddress; at: number }
   | { kind: "encoder-rotate"; deviceId: string; encoder: number; ticks: number }
   | { kind: "encoder-down"; deviceId: string; encoder: number }
   | { kind: "encoder-up"; deviceId: string; encoder: number }
@@ -43,4 +47,10 @@ export type Command =
    * carry them, so this is a second read rather than a redundant one.
    */
   | { kind: "load-worktrees"; workspaceId: string }
+  /**
+   * Persist slot assignments. They must outlive both Herdr and the Stream Deck
+   * app, so they live in the app's settings rather than in a workspace token,
+   * which dies with its workspace (ADR-0009).
+   */
+  | { kind: "save-slots"; slots: SlotBindings }
   | { kind: "herdr-request"; method: string; params: Record<string, unknown> };

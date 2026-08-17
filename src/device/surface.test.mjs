@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { CHANNEL_COUNT, DEVICE_TYPE_XL, XL_LAYOUT, channelKeyIndex } from "../../.preview/device/geometry.js";
+import { CHANNEL_COUNT, DEVICE_TYPE_XL, HEADER_ROW, XL_LAYOUT, channelKeyIndex } from "../../.preview/device/geometry.js";
 import { initialState, reduce } from "../../.preview/device/state.js";
-import { HEADER_ROW, changedControls, surfaceOf } from "../../.preview/device/surface.js";
+import { changedControls, surfaceOf } from "../../.preview/device/surface.js";
 import { recordedWorkspace, recordedWorktree } from "../herdr/fixtures/recorded.mjs";
 
 function run(events, from = initialState()) {
@@ -21,6 +21,18 @@ function liveState({ workspaces = [], panes = [], worktrees = [] } = {}) {
     { kind: "herdr-snapshot", snapshot: { workspaces, panes, tabs: [] } },
     { kind: "herdr-worktrees", worktrees }
   ]);
+}
+
+/** A workspace on a checkout of its own, which is what a workstream is keyed on. */
+function workspaceOn(number, label) {
+  const recorded = recordedWorkspace();
+  return {
+    ...recorded,
+    workspace_id: `w${number}`,
+    number,
+    label,
+    worktree: { ...recorded.worktree, checkout_path: `/w/${label}` }
+  };
 }
 
 /** The three keys of one channel's header row, left to right. */
@@ -60,9 +72,7 @@ test("an unassigned channel invites a worktree rather than showing nothing", () 
 });
 
 test("three channels sit side by side in Herdr's workspace order", () => {
-  const workspaces = [1, 2, 3].map((number) =>
-    recordedWorkspace({ workspace_id: `w${number}`, number, label: `stream ${number}` })
-  );
+  const workspaces = [1, 2, 3].map((number) => workspaceOn(number, `stream ${number}`));
   const device = surfaceOf(liveState({ workspaces })).devices[0];
 
   // The channel is the position, so a workstream is found by where it sits.

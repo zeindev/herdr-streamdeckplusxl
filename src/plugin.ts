@@ -14,6 +14,7 @@ import streamDeck, {
 
 import type { Command, DeviceEvent } from "./device/events.js";
 import { keyAddress, layoutForDeviceType, type DeviceLayout } from "./device/geometry.js";
+import { readSlots, type SlotBindings } from "./device/slots.js";
 import { initialState, reduce, type State } from "./device/state.js";
 import { changedControls, surfaceOf, type ControlChange, type EncoderFace, type KeyFace, type Surface } from "./device/surface.js";
 import { encoderImage, keyImage } from "./device/paint.js";
@@ -53,6 +54,10 @@ class Adapter {
   private readonly addresses = new Map<string, string>();
 
   start(): void {
+    // Geography first: the channels must mean what they meant yesterday before
+    // anything from Herdr can fill them in.
+    void this.loadSlots();
+
     this.herdr.onConnectionChange((connected) => this.dispatch({ kind: "herdr-connection", connected }));
     this.herdr.onEvent((event) => this.dispatch({ kind: "herdr-event", event, at: Date.now() }));
     this.herdr.onSubscribeFailure((error) => streamDeck.logger.error(`Herdr refused the subscription: ${error.message}`));
@@ -70,6 +75,16 @@ class Adapter {
     }, TICK_MS);
 
     void this.herdr.start();
+  }
+
+  private async loadSlots(): Promise<void> {
+    try {
+      const stored = await streamDeck.settings.getGlobalSettings();
+      this.dispatch({ kind: "settings-loaded", slots: readSlots(stored) });
+    } catch (error) {
+      // An unreadable setting costs the remembered geography, not the device.
+      streamDeck.logger.error(`Could not read slot assignments: ${(error as Error).message}`);
+    }
   }
 
   private attach(deviceId: string, type: number): void {
@@ -105,6 +120,12 @@ class Adapter {
       if (command.kind === "load-worktrees") {
         const result = await this.herdr.request("worktree.list", { workspace_id: command.workspaceId });
         this.dispatch({ kind: "herdr-worktrees", worktrees: worktreesFromResult(result) });
+        return;
+      }
+      if (command.kind === "save-slots") {
+        // Global rather than per-action: the assignment belongs to the device as
+        // a whole, and must survive the actions being re-placed on a profile.
+        await streamDeck.settings.setGlobalSettings({ slots: [...command.slots] });
         return;
       }
       await this.herdr.request(command.method, command.params);
@@ -228,7 +249,8 @@ class ChannelKey extends SingletonAction {
     if (!coordinates) return;
     adapter.dispatch({
       kind,
-      key: { deviceId: String(instance.device.id), column: coordinates.column, row: coordinates.row }
+      key: { deviceId: String(instance.device.id), column: coordinates.column, row: coordinates.row },
+      at: Date.now()
     });
   }
 }

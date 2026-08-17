@@ -21,8 +21,16 @@ This makes the three-worktree limit enforced by the instrument rather than by wi
 - Slot assignment must survive Herdr and Stream Deck restarts, so it is durable plugin state rather than a workspace token (which dies with the workspace).
 - Reassigning a slot is disruptive by design and should carry friction.
 
-## Staged deviation, in force while ticket `-3rd` is the newest work
+## Amendment: assignment is automatic and sticky, not manual (ticket `-77f`)
 
-Slot assignment **is not durable yet**. Channels currently take workstreams in Herdr's workspace `number` order and the first three win, which is the auto-fill this decision rejects: closing a low-numbered workstream slides every later one a channel to the left, and `workspace_reordered` and `workspace_moved` can move them too. A channel's meaning is therefore stable only while no workstream ends.
+The consequence above says "slot assignment is a manual act". Building it showed that to be the wrong half of the idea. **Assignment** is automatic: a workstream with no channel takes the lowest free one the moment it appears. **Reassignment** is the manual act, and the one that carries friction.
 
-This is a gap, not a change of mind. Durable assignment, the enforced cap, and the overflow count are ticket `-77f`, which is unblocked and holds a note pointing at the seam to replace (`workstreamsOf` and `channelWorkstreams` in `src/device/workstream.ts`). The empty-slot face already renders and already invites `worktree.create`, so what `-77f` adds is the assignment store, not the rendering.
+The concern this decision actually rests on is that a workstream must never *move* — that is why auto-fill by recency was rejected, because it lets a channel change meaning while the developer is looking away. Automatic assignment that is sticky does not do that: a channel is filled once and then never reflows, so closing the leftmost workstream leaves a gap rather than sliding the others along. Requiring a manual act on top of that would buy no stability and would leave the device showing three empty channels until it was configured, which makes a fresh install useless rather than cautious.
+
+Three things follow, all verified rather than assumed:
+
+- **A slot remembers a workstream by its checkout path**, because that is what a workstream *is* and it survives everything, including Herdr losing its session file. A workspace with no worktree has no such path and falls back to its workspace id, which Herdr persists verbatim in `session.json` and so survives a restart, though not a session reset. The two are prefixed so the namespaces cannot collide.
+- **The assignment lives in the Stream Deck app's global settings**, not a workspace token, as this decision requires — a token dies with its workspace.
+- **Reassignment is a hold, not a tap**, on the channel's identity key: holding a filled channel releases it, holding an empty one takes in the workstream that has been waiting longest. Two holds move a workstream to a chosen channel. A hold cannot happen by brushing a key, which is the friction this decision asks for.
+
+A channel bound to a workstream that is not present renders empty and keeps its binding, so a Herdr restart puts everything back. Such a binding yields to a new workstream only once every genuinely free channel is taken, so a workstream that never returns cannot hold a channel hostage.

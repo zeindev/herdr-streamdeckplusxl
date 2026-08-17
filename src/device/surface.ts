@@ -1,7 +1,8 @@
 import type { AgentStatus } from "../model.js";
-import { CHANNEL_COUNT, channelKeyIndex, keyCount, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
+import { CHANNEL_COUNT, HEADER_ROW, channelKeyIndex, keyCount, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
+import { channelWorkstreams, overflowOf } from "./slots.js";
 import type { State } from "./state.js";
-import { channelWorkstreams, workstreamsOf, type Workstream } from "./workstream.js";
+import { workstreamsOf, type Workstream } from "./workstream.js";
 
 /**
  * What a control shows, described rather than drawn. Turning a face into pixels
@@ -36,15 +37,6 @@ export type Surface = { devices: DeviceSurface[] };
 const BLANK: KeyFace = { kind: "blank" };
 
 /**
- * The row of a channel that carries who the workstream is and how it is doing.
- *
- * Row 0 for now. ADR-0003 gives the top three rows to panes and puts identity on
- * the strip, so this row returns to panes once the strip carries identity
- * permanently — until then it is the only place a channel can be read.
- */
-export const HEADER_ROW = 0;
-
-/**
  * Projects state onto every attached device.
  *
  * The three channels are the whole reading: each one names its workstream, its
@@ -53,7 +45,9 @@ export const HEADER_ROW = 0;
  * later tickets, so everything below the header row is still blank.
  */
 export function surfaceOf(state: State): Surface {
-  const workstreams = channelWorkstreams(workstreamsOf(state.snapshot, state.branches));
+  const present = workstreamsOf(state.snapshot, state.branches);
+  const workstreams = channelWorkstreams(state.slots, present);
+  const overflow = overflowOf(state.slots, present).length;
   const devices: DeviceSurface[] = [];
   for (const device of state.devices) {
     const layout = layoutForDeviceType(device.type);
@@ -62,7 +56,7 @@ export function surfaceOf(state: State): Surface {
       deviceId: device.id,
       layout: layout.kind,
       keys: keysOf(layout, workstreams),
-      encoders: encodersOf(state, layout)
+      encoders: encodersOf(state, layout, overflow)
     });
   }
   return { devices };
@@ -118,7 +112,7 @@ function stateFace(status: AgentStatus | undefined): KeyFace {
   return status ? { kind: "status", label: status.toUpperCase(), status } : { kind: "text", label: "NO AGENT" };
 }
 
-function encodersOf(state: State, layout: DeviceLayout): EncoderFace[] {
+function encodersOf(state: State, layout: DeviceLayout, overflow: number): EncoderFace[] {
   const snapshot = state.snapshot;
   const sync = state.sync === "live" ? "LIVE" : state.sync === "syncing" ? "SYNCING" : "OFFLINE";
   const faces: EncoderFace[] = [
@@ -127,7 +121,13 @@ function encodersOf(state: State, layout: DeviceLayout): EncoderFace[] {
     { title: "PANES", value: snapshot ? String(snapshot.panes.length) : "-" }
   ];
   while (faces.length < layout.encoders) faces.push({ title: "", value: "" });
-  return faces.slice(0, layout.encoders);
+  const regions = faces.slice(0, layout.encoders);
+  // The rightmost region carries the overflow count on an XL-only rig, since
+  // ADR-0011 leaves the XL without a global rail. It appears only when there is
+  // something to report: a permanent zero is a number the eye learns to skip,
+  // and being over budget has to stay noticeable.
+  if (overflow > 0) regions[regions.length - 1] = { title: "OVERFLOW", value: `+${overflow}` };
+  return regions;
 }
 
 export type ControlKind = "key" | "encoder";

@@ -44,6 +44,26 @@ export const XL_LAYOUT: DeviceLayout = {
  */
 export const CHANNEL_COUNT = 3;
 
+/**
+ * The row of a channel that carries who the workstream is and how it is doing.
+ *
+ * Row 0 for now. ADR-0003 gives the top three rows to panes and puts identity on
+ * the strip, so this row returns to panes once the strip carries identity
+ * permanently — until then it is the only place a channel can be read, and the
+ * only place a channel can be pressed.
+ */
+export const HEADER_ROW = 0;
+
+/** The channel a column belongs to. */
+export function channelOfColumn(layout: DeviceLayout, column: number): number {
+  return Math.floor(column / layout.columnsPerChannel);
+}
+
+/** Where a column sits inside its own channel. */
+export function columnInChannel(layout: DeviceLayout, column: number): number {
+  return column % layout.columnsPerChannel;
+}
+
 /** The absolute key index of a position inside a channel. */
 export function channelKeyIndex(layout: DeviceLayout, channel: number, column: number, row: number): number {
   return row * layout.columns + channel * layout.columnsPerChannel + column;

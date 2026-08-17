@@ -5,7 +5,6 @@ import {
   type PaneSnapshot,
   type WorkspaceSnapshot
 } from "../model.js";
-import { CHANNEL_COUNT } from "./geometry.js";
 
 /**
  * What a workstream's checkout is, as the device needs it.
@@ -56,12 +55,11 @@ export type Branches = Readonly<Record<string, string | null>>;
  * Order is Herdr's workspace `number`, with the id breaking ties so the same
  * snapshot always yields the same order.
  *
- * That makes the order deterministic but **not** fixed: `workspace_reordered`
- * and `workspace_moved` both exist, and closing a low-numbered workspace slides
- * every later one along, which is exactly the shuffle ADR-0009 rejects
- * auto-fill for. Durable slot assignment is that ADR's answer and belongs to the
- * ticket that builds it; until then a channel's meaning is stable only while no
- * workstream ends.
+ * This order decides only which workstream is offered a free channel first, and
+ * in what order overflow is listed. It does **not** decide which channel a
+ * workstream ends up in — `slots.ts` owns that, and keeps it fixed for the life
+ * of the workstream, so the shuffle this order would otherwise cause cannot
+ * reach the device (ADR-0009).
  */
 export function workstreamsOf(snapshot: HerdrSnapshot | null, branches: Branches = {}): Workstream[] {
   if (!snapshot) return [];
@@ -69,15 +67,6 @@ export function workstreamsOf(snapshot: HerdrSnapshot | null, branches: Branches
   return [...(snapshot.workspaces ?? [])]
     .sort(byNumberThenId)
     .map((workspace) => toWorkstream(workspace, panesByWorkspace.get(workspace.workspace_id) ?? [], branches));
-}
-
-/**
- * The workspace each channel shows, one entry per channel. A channel with no
- * workstream holds null, which is what makes an empty slot a rendered thing
- * rather than an absence.
- */
-export function channelWorkstreams(workstreams: readonly Workstream[]): Array<Workstream | null> {
-  return Array.from({ length: CHANNEL_COUNT }, (_, channel) => workstreams[channel] ?? null);
 }
 
 function toWorkstream(workspace: WorkspaceSnapshot, panes: PaneSnapshot[], branches: Branches): Workstream {

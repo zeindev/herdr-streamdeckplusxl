@@ -1,7 +1,17 @@
 import type { HerdrEvent } from "../herdr/protocol.js";
 import type { HerdrSnapshot, PaneSnapshot, ResolvedThemeSnapshot, WorktreeEntry } from "../model.js";
 import { sameKey, type Command, type DeviceEvent, type DeviceInfo, type KeyAddress } from "./events.js";
-import { layoutForDeviceType } from "./geometry.js";
+import { HEADER_ROW, channelOfColumn, columnInChannel, layoutForDeviceType } from "./geometry.js";
+import {
+  adoptIntoSlot,
+  bind,
+  emptySlots,
+  overflowOf,
+  release,
+  sameSlots,
+  workstreamKey,
+  type SlotBindings
+} from "./slots.js";
 import { oneWorkspacePerRepository, workstreamsOf, type Branches } from "./workstream.js";
 
 /**
@@ -10,6 +20,17 @@ import { oneWorkspacePerRepository, workstreamsOf, type Branches } from "./works
  * a whole snapshot, so they are collapsed into one.
  */
 export const RESYNC_DEBOUNCE_MS = 120;
+
+/**
+ * How long a channel's identity key must be held to change what that channel
+ * means.
+ *
+ * ADR-0009 asks that reassigning a slot be disruptive by design and carry
+ * friction, because a channel that changes meaning costs the developer the
+ * spatial memory the whole layout is built on. A hold cannot happen by brushing
+ * a key, which a tap can.
+ */
+export const SLOT_HOLD_MS = 1200;
 
 /**
  * `offline` — no connection. `syncing` — connected, but the snapshot has not
@@ -29,11 +50,16 @@ export type State = {
    * a snapshot re-read must not drop a branch that has not changed.
    */
   branches: Branches;
-  /** Keys currently held. */
-  pressed: KeyAddress[];
+  /** Which channel belongs to which workstream, and the only durable state. */
+  slots: SlotBindings;
+  /** Keys currently held, with when the hold began. */
+  pressed: PressedKey[];
   /** When a structural change was first seen, or null when nothing is pending. */
   resyncRequestedAt: number | null;
 };
+
+/** A key being held, and since when, so a hold can be told from a tap. */
+export type PressedKey = { key: KeyAddress; at: number };
 
 export type Step = { state: State; commands: Command[] };
 
@@ -44,6 +70,7 @@ export function initialState(): State {
     theme: null,
     devices: [],
     branches: {},
+    slots: emptySlots(),
     pressed: [],
     resyncRequestedAt: null
   };
@@ -98,6 +125,7 @@ export function reduce(state: State, event: DeviceEvent): Step {
     case "herdr-snapshot": {
       const snapshot = event.snapshot;
       const workstreams = workstreamsOf(snapshot);
+      const slots = bind(state.slots, workstreams);
       return {
         state: {
           ...state,
@@ -106,14 +134,29 @@ export function reduce(state: State, event: DeviceEvent): Step {
           // Branches of checkouts that are gone would otherwise accumulate for
           // as long as the plugin runs.
           branches: keepKnownCheckouts(state.branches, snapshot),
+          slots,
           resyncRequestedAt: null
         },
-        // One read per repository, not per workstream: `worktree.list` answers
-        // for a whole repository at once.
-        commands: oneWorkspacePerRepository(workstreams).map((workspaceId) => ({
-          kind: "load-worktrees" as const,
-          workspaceId
-        }))
+        commands: [
+          // One read per repository, not per workstream: `worktree.list` answers
+          // for a whole repository at once.
+          ...oneWorkspacePerRepository(workstreams).map((workspaceId) => ({
+            kind: "load-worktrees" as const,
+            workspaceId
+          })),
+          ...savedIfChanged(state.slots, slots)
+        ]
+      };
+    }
+
+    case "settings-loaded": {
+      // Whatever was stored is the truth about geography; any workstream it does
+      // not mention takes a free channel on the next snapshot.
+      const slots = bind(event.slots, workstreamsOf(state.snapshot, state.branches));
+      return {
+        state: { ...state, slots },
+        // Only a binding this load actually added is worth writing back.
+        commands: savedIfChanged(event.slots, slots)
       };
     }
 
@@ -125,10 +168,13 @@ export function reduce(state: State, event: DeviceEvent): Step {
     case "herdr-event":
       return applyHerdrEvent(state, event.event, event.at);
 
-    case "tick":
+    case "tick": {
+      const held = heldLongEnough(state, event.at);
+      if (held) return applySlotHold(state, held);
       if (state.resyncRequestedAt === null) return { state, commands: [] };
       if (event.at - state.resyncRequestedAt < RESYNC_DEBOUNCE_MS) return { state, commands: [] };
       return { state: { ...state, resyncRequestedAt: null }, commands: [{ kind: "load-snapshot" }] };
+    }
 
     case "theme-changed":
       return { state: { ...state, theme: event.theme }, commands: [] };
@@ -145,19 +191,22 @@ export function reduce(state: State, event: DeviceEvent): Step {
           ...state,
           devices: state.devices.filter((device) => device.id !== event.deviceId),
           // A device that is gone can never report the release of a held key.
-          pressed: state.pressed.filter((held) => held.deviceId !== event.deviceId)
+          pressed: state.pressed.filter((held) => held.key.deviceId !== event.deviceId)
         },
         commands: []
       };
 
     case "key-down": {
-      if (state.pressed.some((held) => sameKey(held, event.key))) return { state, commands: [] };
-      return { state: { ...state, pressed: [...state.pressed, event.key] }, commands: [] };
+      if (state.pressed.some((held) => sameKey(held.key, event.key))) return { state, commands: [] };
+      return { state: { ...state, pressed: [...state.pressed, { key: event.key, at: event.at }] }, commands: [] };
     }
 
     case "key-up": {
-      if (!state.pressed.some((held) => sameKey(held, event.key))) return { state, commands: [] };
-      return { state: { ...state, pressed: state.pressed.filter((held) => !sameKey(held, event.key)) }, commands: [] };
+      if (!state.pressed.some((held) => sameKey(held.key, event.key))) return { state, commands: [] };
+      return {
+        state: { ...state, pressed: state.pressed.filter((held) => !sameKey(held.key, event.key)) },
+        commands: []
+      };
     }
 
     case "encoder-rotate":
@@ -186,6 +235,54 @@ function applyHerdrEvent(state: State, event: HerdrEvent, at: number): Step {
   }
 
   return { state, commands: [] };
+}
+
+function savedIfChanged(before: SlotBindings, after: SlotBindings): Command[] {
+  return sameSlots(before, after) ? [] : [{ kind: "save-slots", slots: after }];
+}
+
+/**
+ * A channel's identity key held past the friction threshold, if any.
+ *
+ * Only that one key per channel changes what the channel means. Every other key
+ * is a pane or a control and belongs to another ticket, so a long press
+ * elsewhere does nothing rather than doing something surprising.
+ */
+function heldLongEnough(state: State, at: number): { held: PressedKey; slot: number } | null {
+  for (const held of state.pressed) {
+    if (at - held.at < SLOT_HOLD_MS) continue;
+    const device = state.devices.find((candidate) => candidate.id === held.key.deviceId);
+    const layout = device && layoutForDeviceType(device.type);
+    if (!layout) continue;
+    if (held.key.row !== HEADER_ROW || columnInChannel(layout, held.key.column) !== 0) continue;
+    return { held, slot: channelOfColumn(layout, held.key.column) };
+  }
+  return null;
+}
+
+/**
+ * What holding a channel's identity key does: a bound channel lets its
+ * workstream go, and a free channel takes the workstream that has been waiting
+ * longest. Two holds therefore move a workstream to a chosen channel, which is
+ * the deliberate act ADR-0009 asks for.
+ *
+ * The hold is spent whether or not it changed anything, so it fires once rather
+ * than on every tick while the key stays down.
+ */
+function applySlotHold(state: State, { held, slot }: { held: PressedKey; slot: number }): Step {
+  const spent = { ...state, pressed: state.pressed.filter((candidate) => candidate !== held) };
+  const workstreams = workstreamsOf(state.snapshot, state.branches);
+
+  if (state.slots[slot] !== null) {
+    const slots = release(state.slots, slot);
+    return { state: { ...spent, slots }, commands: savedIfChanged(state.slots, slots) };
+  }
+
+  const [waiting] = overflowOf(state.slots, workstreams);
+  if (!waiting) return { state: spent, commands: [] };
+
+  const slots = adoptIntoSlot(state.slots, slot, workstreamKey(waiting));
+  return { state: { ...spent, slots }, commands: savedIfChanged(state.slots, slots) };
 }
 
 /** Every checkout path the snapshot's workspaces currently occupy. */

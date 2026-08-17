@@ -74,6 +74,10 @@ _Avoid_: Kind, type, category, purpose
 The controls belonging to no single workstream — the cross-workstream attention queue, overflow count, worktree creation, recent, and settings. It exists only on a Stream Deck Mini; the Stream Deck + XL has no shared rail.
 _Avoid_: Global rail, action bar, toolbar, footer
 
+**Overflow**:
+The number of workstreams that exist but hold no slot. Counted and shown, never listed — the count is the only pressure to close one.
+_Avoid_: Extra, backlog, queue, hidden workstreams
+
 **Attention item**:
 Something that needs the developer, regardless of which workstream it belongs to.
 _Avoid_: Notification, alert, inbox item, event

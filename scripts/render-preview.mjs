@@ -76,19 +76,35 @@ const scenes = {
     ],
     { "/w/auth-rewrite": "feat/auth-rewrite", "/w/billing-api": "feat/billing-api", "/w/search-perf": "perf/search" }
   ),
-  // The awkward cases: one slot unassigned, one workspace with no worktree, and
-  // a workstream whose panes run no agent.
+  // The awkward cases: one channel unassigned and offering a worktree, one
+  // workspace with no worktree, and a workstream whose panes run no agent.
   partial: live(
     [workspace(1, "primary", null), workspace(2, "search perf", "/w/search-perf")],
     [{ pane_id: "w2:p1", workspace_id: "w2", agent_status: "unknown" }],
     { "/w/search-perf": "perf/search" }
+  ),
+  // Over budget: a fourth workstream takes no channel and is counted instead.
+  overflow: live(
+    [
+      workspace(1, "auth rewrite", "/w/auth-rewrite"),
+      workspace(2, "billing api", "/w/billing-api"),
+      workspace(3, "search perf", "/w/search-perf"),
+      workspace(4, "flaky tests", "/w/flaky-tests"),
+      workspace(5, "docs pass", "/w/docs-pass")
+    ],
+    [agentPane("w1", 1, "blocked"), agentPane("w2", 1, "working"), agentPane("w3", 1, "idle")],
+    {
+      "/w/auth-rewrite": "feat/auth-rewrite",
+      "/w/billing-api": "feat/billing-api",
+      "/w/search-perf": "perf/search"
+    }
   )
 };
 
 mkdirSync("artifacts", { recursive: true });
 for (const [name, state] of Object.entries(scenes)) {
   for (const [appearance, theme] of [["dark", dark], ["light", light]]) {
-    if (name !== "live" && name !== "partial" && appearance === "light") continue;
+    if (!["live", "partial", "overflow"].includes(name) && appearance === "light") continue;
     writeFileSync(`artifacts/xl-${name}-${appearance}.svg`, devicePreview(state, theme));
   }
 }

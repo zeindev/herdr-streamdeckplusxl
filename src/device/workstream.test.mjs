@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { agentStatusOfPanes } from "../../.preview/model.js";
-import { channelWorkstreams, oneWorkspacePerRepository, workstreamsOf } from "../../.preview/device/workstream.js";
+import { oneWorkspacePerRepository, workstreamsOf } from "../../.preview/device/workstream.js";
 import { recordedWorkspace, recordedWorktree } from "../herdr/fixtures/recorded.mjs";
 
 const agentPane = (overrides) => ({ pane_id: "p", agent: "claude", agent_status: "idle", ...overrides });
@@ -138,25 +138,6 @@ test("one read per repository, however many workstreams share it", () => {
 test("a workspace with no worktree needs no read, since it has no branch to learn", () => {
   const workspace = recordedWorkspace({ worktree: null });
   assert.deepEqual(oneWorkspacePerRepository(workstreamsOf({ workspaces: [workspace], panes: [] })), []);
-});
-
-test("there are always exactly three channels, filled or not", () => {
-  const workspaces = [recordedWorkspace({ workspace_id: "w4", number: 1 })];
-  const channels = channelWorkstreams(workstreamsOf({ workspaces, panes: [] }));
-
-  assert.equal(channels.length, 3);
-  assert.equal(channels[0].workspaceId, "w4");
-  assert.equal(channels[1], null);
-  assert.equal(channels[2], null);
-});
-
-test("a fourth workstream takes no channel", () => {
-  const workspaces = [1, 2, 3, 4].map((number) =>
-    recordedWorkspace({ workspace_id: `w${number}`, number, label: `stream ${number}` })
-  );
-  const channels = channelWorkstreams(workstreamsOf({ workspaces, panes: [] }));
-
-  assert.deepEqual(channels.map((channel) => channel?.label), ["stream 1", "stream 2", "stream 3"]);
 });
 
 test("no snapshot means no workstreams rather than a crash", () => {

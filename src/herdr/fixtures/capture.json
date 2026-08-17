@@ -1,5 +1,27 @@
 {
   "capturedAt": "2026-08-16T23:40:56.511Z",
+  "appended": {
+    "at": "2026-08-17",
+    "by": "ticket -d9e, recorded live from a running Herdr 0.8.0, not hand-written",
+    "why": "the original run provoked no workspace_metadata_updated and no workspace carrying tokens, and the crashed-service signal is built on both",
+    "what": [
+      "two workspace_metadata_updated events: one setting a token, one clearing it",
+      "snapshotWorkspaceWithTokens, a workspace as session.snapshot returns it once a token is set"
+    ]
+  },
+  "snapshotWorkspaceWithTokens": {
+    "workspace_id": "wJ",
+    "number": 2,
+    "label": "sd-snapshot-tokens",
+    "focused": false,
+    "pane_count": 1,
+    "tab_count": 1,
+    "active_tab_id": "wJ:t1",
+    "agent_status": "unknown",
+    "tokens": {
+      "sd_exit_dev": "1 wJ:p1"
+    }
+  },
   "events": [
     {
       "at": 1786923611612,
@@ -213,8 +235,8 @@
           },
           "tab_id": "w4:t1",
           "terminal_id": "term_6592b149f5a3e10",
-          "terminal_title": "◐ Plan plugin refactor with exploratory workflow",
-          "terminal_title_stripped": "◐ Plan plugin refactor with exploratory workflow",
+          "terminal_title": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d0 Plan plugin refactor with exploratory workflow",
           "workspace_id": "w4"
         },
         "type": "pane_updated"
@@ -336,8 +358,8 @@
           },
           "tab_id": "w4:t1",
           "terminal_id": "term_6592b149f5a3e10",
-          "terminal_title": "◑ Plan plugin refactor with exploratory workflow",
-          "terminal_title_stripped": "◑ Plan plugin refactor with exploratory workflow",
+          "terminal_title": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d1 Plan plugin refactor with exploratory workflow",
           "workspace_id": "w4"
         },
         "type": "pane_updated"
@@ -420,8 +442,8 @@
           },
           "tab_id": "w4:t1",
           "terminal_id": "term_6592b149f5a3e10",
-          "terminal_title": "◐ Plan plugin refactor with exploratory workflow",
-          "terminal_title_stripped": "◐ Plan plugin refactor with exploratory workflow",
+          "terminal_title": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d0 Plan plugin refactor with exploratory workflow",
           "workspace_id": "w4"
         },
         "type": "pane_updated"
@@ -472,8 +494,8 @@
           },
           "tab_id": "w4:t1",
           "terminal_id": "term_6592b149f5a3e10",
-          "terminal_title": "◑ Plan plugin refactor with exploratory workflow",
-          "terminal_title_stripped": "◑ Plan plugin refactor with exploratory workflow",
+          "terminal_title": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d1 Plan plugin refactor with exploratory workflow",
           "workspace_id": "w4"
         },
         "type": "pane_updated"
@@ -524,8 +546,8 @@
           },
           "tab_id": "w4:t1",
           "terminal_id": "term_6592b149f5a3e10",
-          "terminal_title": "◐ Plan plugin refactor with exploratory workflow",
-          "terminal_title_stripped": "◐ Plan plugin refactor with exploratory workflow",
+          "terminal_title": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d0 Plan plugin refactor with exploratory workflow",
           "workspace_id": "w4"
         },
         "type": "pane_updated"
@@ -576,8 +598,8 @@
           },
           "tab_id": "w4:t1",
           "terminal_id": "term_6592b149f5a3e10",
-          "terminal_title": "◑ Plan plugin refactor with exploratory workflow",
-          "terminal_title_stripped": "◑ Plan plugin refactor with exploratory workflow",
+          "terminal_title": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d1 Plan plugin refactor with exploratory workflow",
           "workspace_id": "w4"
         },
         "type": "pane_updated"
@@ -628,8 +650,8 @@
           },
           "tab_id": "w4:t1",
           "terminal_id": "term_6592b149f5a3e10",
-          "terminal_title": "◐ Plan plugin refactor with exploratory workflow",
-          "terminal_title_stripped": "◐ Plan plugin refactor with exploratory workflow",
+          "terminal_title": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d0 Plan plugin refactor with exploratory workflow",
           "workspace_id": "w4"
         },
         "type": "pane_updated"
@@ -680,8 +702,8 @@
           },
           "tab_id": "w4:t1",
           "terminal_id": "term_6592b149f5a3e10",
-          "terminal_title": "◑ Plan plugin refactor with exploratory workflow",
-          "terminal_title_stripped": "◑ Plan plugin refactor with exploratory workflow",
+          "terminal_title": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d1 Plan plugin refactor with exploratory workflow",
           "workspace_id": "w4"
         },
         "type": "pane_updated"
@@ -715,8 +737,8 @@
           },
           "tab_id": "w4:t1",
           "terminal_id": "term_6592b149f5a3e10",
-          "terminal_title": "◐ Plan plugin refactor with exploratory workflow",
-          "terminal_title_stripped": "◐ Plan plugin refactor with exploratory workflow",
+          "terminal_title": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d0 Plan plugin refactor with exploratory workflow",
           "workspace_id": "w4"
         },
         "type": "pane_updated"
@@ -741,8 +763,8 @@
           },
           "tab_id": "w4:t1",
           "terminal_id": "term_6592b149f5a3e10",
-          "terminal_title": "◑ Plan plugin refactor with exploratory workflow",
-          "terminal_title_stripped": "◑ Plan plugin refactor with exploratory workflow",
+          "terminal_title": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d1 Plan plugin refactor with exploratory workflow",
           "workspace_id": "w4"
         },
         "type": "pane_updated"
@@ -767,8 +789,8 @@
           },
           "tab_id": "w4:t1",
           "terminal_id": "term_6592b149f5a3e10",
-          "terminal_title": "◐ Plan plugin refactor with exploratory workflow",
-          "terminal_title_stripped": "◐ Plan plugin refactor with exploratory workflow",
+          "terminal_title": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d0 Plan plugin refactor with exploratory workflow",
           "workspace_id": "w4"
         },
         "type": "pane_updated"
@@ -793,8 +815,8 @@
           },
           "tab_id": "w4:t1",
           "terminal_id": "term_6592b149f5a3e10",
-          "terminal_title": "◑ Plan plugin refactor with exploratory workflow",
-          "terminal_title_stripped": "◑ Plan plugin refactor with exploratory workflow",
+          "terminal_title": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d1 Plan plugin refactor with exploratory workflow",
           "workspace_id": "w4"
         },
         "type": "pane_updated"

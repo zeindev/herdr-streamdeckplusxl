@@ -781,7 +781,7 @@ test("tapping a finished agent acknowledges it, and the acknowledgement is persi
   const key = keyAt(0, 0, 0);
   const tapped = run([{ kind: "key-down", key, at: 100 }, { kind: "key-up", key, at: 200 }], live);
 
-  assert.deepEqual(askingIn(tapped.state), [], "going to look at it is what marks it seen");
+  assert.deepEqual(askingIn(tapped.state), [], "going to look at it is what acknowledges it");
   assert.deepEqual(tapped.commands, [
     { kind: "herdr-request", method: "pane.focus", params: { pane_id: "w1:a" } },
     { kind: "save-acknowledged", acknowledged: ["w1:a"] }
@@ -830,12 +830,12 @@ test("an agent that finishes a second time asks again, from a pane update alone"
   ).state;
 
   const key = keyAt(0, 0, 0);
-  const seen = run([{ kind: "key-down", key, at: 100 }, { kind: "key-up", key, at: 200 }], live).state;
-  assert.deepEqual(askingIn(seen), []);
+  const looked = run([{ kind: "key-down", key, at: 100 }, { kind: "key-up", key, at: 200 }], live).state;
+  assert.deepEqual(askingIn(looked), []);
 
   const working = run(
     [paneUpdate({ ...paneOn("w1", "a", { agent: "claude" }), agent_status: "working", revision: 2 }, 300)],
-    seen
+    looked
   );
   assert.deepEqual(working.state.acknowledged, [], "leaving done spends the mark");
   assert.deepEqual(working.commands, [{ kind: "save-acknowledged", acknowledged: [] }]);
@@ -853,10 +853,10 @@ test("a pane that closes takes its acknowledgement with it rather than accumulat
     liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude", agent_status: "done" })]).state
   ).state;
   const key = keyAt(0, 0, 0);
-  const seen = run([{ kind: "key-down", key, at: 100 }, { kind: "key-up", key, at: 200 }], live).state;
-  assert.deepEqual(seen.acknowledged, ["w1:a"]);
+  const looked = run([{ kind: "key-down", key, at: 100 }, { kind: "key-up", key, at: 200 }], live).state;
+  assert.deepEqual(looked.acknowledged, ["w1:a"]);
 
-  const gone = run([snapshotOf({ workspaces: [workspaceOn(1, "auth")], panes: [] })], seen);
+  const gone = run([snapshotOf({ workspaces: [workspaceOn(1, "auth")], panes: [] })], looked);
   assert.deepEqual(gone.state.acknowledged, []);
   assert.deepEqual(gone.commands.filter((command) => command.kind === "save-acknowledged"), [
     { kind: "save-acknowledged", acknowledged: [] }

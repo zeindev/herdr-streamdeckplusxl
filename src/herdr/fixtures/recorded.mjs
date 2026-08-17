@@ -23,6 +23,18 @@ export function recordedWorkspace(overrides = {}) {
   return { ...structuredClone(recordedEvent("workspace_created").data.workspace), ...overrides };
 }
 
+/**
+ * A workspace exactly as `session.snapshot` returned one once a token was set.
+ *
+ * Separate from `recordedWorkspace` on purpose: that one comes from an event,
+ * and the reducer never reads tokens off an event. A workspace metadata change
+ * is structural, so the reducer re-reads the snapshot and the pushed payload is
+ * discarded — this is the leg the code actually uses.
+ */
+export function recordedSnapshotWorkspaceWithTokens(overrides = {}) {
+  return { ...structuredClone(capture.snapshotWorkspaceWithTokens), ...overrides };
+}
+
 /** The worktree Herdr reported alongside that workspace — the branch lives here. */
 export function recordedWorktree(overrides = {}) {
   return { ...structuredClone(recordedEvent("worktree_created").data.worktree), ...overrides };

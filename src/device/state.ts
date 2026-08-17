@@ -162,7 +162,7 @@ export function reduce(state: State, event: DeviceEvent): Step {
           resyncRequestedAt: null
         },
         commands: [
-          ...savedIfSeenChanged(state.acknowledged, acknowledged),
+          ...savedIfAcknowledgedChanged(state.acknowledged, acknowledged),
           // One read per repository, not per workstream: `worktree.list` answers
           // for a whole repository at once.
           ...oneWorkspacePerRepository(workstreams).map((workspaceId) => ({
@@ -192,7 +192,7 @@ export function reduce(state: State, event: DeviceEvent): Step {
         // Only a binding this load actually added is worth writing back.
         commands: [
           ...savedIfChanged(event.slots, slots),
-          ...savedIfSeenChanged(event.acknowledged, acknowledged)
+          ...savedIfAcknowledgedChanged(event.acknowledged, acknowledged)
         ]
       };
     }
@@ -256,7 +256,7 @@ export function reduce(state: State, event: DeviceEvent): Step {
       const cell = cellAt(state, event.key);
       if (cell?.kind !== "pane") return { state: { ...state, pressed }, commands: [] };
 
-      // Going to look at finished work is what marks it seen, so the same tap
+      // Going to look at finished work is what acknowledges it, so the same tap
       // does both. Anything else would be a second gesture for something the
       // first one already accomplishes.
       const acknowledged = acknowledges(cell.pane) ? acknowledge(state.acknowledged, cell.pane.pane_id) : state.acknowledged;
@@ -264,7 +264,7 @@ export function reduce(state: State, event: DeviceEvent): Step {
         state: { ...state, pressed, acknowledged },
         commands: [
           { kind: "herdr-request", method: "pane.focus", params: { pane_id: cell.pane.pane_id } },
-          ...savedIfSeenChanged(state.acknowledged, acknowledged)
+          ...savedIfAcknowledgedChanged(state.acknowledged, acknowledged)
         ]
       };
     }
@@ -306,7 +306,7 @@ function applyHerdrEvent(state: State, event: HerdrEvent, at: number): Step {
     const acknowledged = keepAcknowledged(state.acknowledged, snapshot);
     return {
       state: { ...state, snapshot, acknowledged },
-      commands: savedIfSeenChanged(state.acknowledged, acknowledged)
+      commands: savedIfAcknowledgedChanged(state.acknowledged, acknowledged)
     };
   }
 
@@ -339,7 +339,7 @@ function savedIfChanged(before: Slots, after: Slots): Command[] {
   return sameSlots(before, after) ? [] : [{ kind: "save-slots", slots: after }];
 }
 
-function savedIfSeenChanged(before: Acknowledged, after: Acknowledged): Command[] {
+function savedIfAcknowledgedChanged(before: Acknowledged, after: Acknowledged): Command[] {
   return sameAcknowledged(before, after) ? [] : [{ kind: "save-acknowledged", acknowledged: after }];
 }
 

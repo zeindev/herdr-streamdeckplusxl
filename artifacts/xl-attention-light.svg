@@ -24,7 +24,12 @@
   </svg>
   <svg x="1120" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="1278" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
-  <svg x="14" y="172" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
+  <svg x="14" y="172" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    <rect x="4" y="4" width="136" height="136" rx="18" fill="none" stroke="rgb(217 50 86)" stroke-width="7"/><circle cx="118" cy="26" r="10" fill="rgb(217 50 86)"/>
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="31.5" fill="rgb(217 50 86)" text-anchor="middle">dev</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">EXITED</text>
+  </svg>
   <svg x="172" y="172" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="330" y="172" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="488" y="172" width="144" height="144" viewBox="0 0 144 144">

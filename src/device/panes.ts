@@ -11,7 +11,13 @@ import type { Workstream } from "./workstream.js";
  */
 export type PaneCell =
   | { kind: "pane"; pane: PaneSnapshot; role: Role }
-  | { kind: "more"; count: number };
+  /**
+   * `panes` is the panes the count stands for, not just how many. Anything that
+   * marks a key needs to know whether one of the panes behind this count is
+   * asking for the developer — otherwise the strip's total could rise with
+   * nothing anywhere on the grid to explain it.
+   */
+  | { kind: "more"; count: number; panes: readonly PaneSnapshot[] };
 
 /**
  * A workstream's panes laid out across its channel's rows, one row per role.
@@ -103,6 +109,11 @@ function fitRow(cells: readonly PaneCell[], columns: number): Array<PaneCell | n
     return row;
   }
   for (let column = 0; column < columns - 1; column++) row[column] = cells[column];
-  row[columns - 1] = { kind: "more", count: cells.length - (columns - 1) };
+  const covered = cells.slice(columns - 1);
+  row[columns - 1] = {
+    kind: "more",
+    count: covered.length,
+    panes: covered.flatMap((cell) => (cell.kind === "pane" ? [cell.pane] : []))
+  };
   return row;
 }

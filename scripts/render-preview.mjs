@@ -129,10 +129,11 @@ const crowdedScene = live(
  * The three attention signals at once, and the difference acknowledging makes.
  *
  * Channel 1 has an agent waiting on input and a dev server that died and said
- * so. Channel 2's agent has finished and nobody has looked. Channel 3's agent
- * has also finished and has been acknowledged, so it is still done but has
- * stopped asking — the pair is the point, since one is the other with the mark
- * and the word removed.
+ * so — the dead server keeps the key of the pane it crashed in, because the
+ * pane outlived it. Channel 2's agent has finished and nobody has looked.
+ * Channel 3's agent has also finished and has been acknowledged, so it is still
+ * done but has stopped asking — the pair is the point, since one is the other
+ * with the mark and the word removed.
  */
 const attentionScene = apply(
   [
@@ -143,13 +144,14 @@ const attentionScene = apply(
       kind: "herdr-snapshot",
       snapshot: {
         workspaces: [
-          { ...workspace(1, "auth rewrite", "/w/auth-rewrite"), tokens: { sd_exit_dev: "1" } },
+          { ...workspace(1, "auth rewrite", "/w/auth-rewrite"), tokens: { sd_exit_dev: "1 w1:dev" } },
           workspace(2, "billing api", "/w/billing-api"),
           workspace(3, "search perf", "/w/search-perf")
         ],
         tabs: [],
         panes: [
           agentPane("w1", 1, "blocked"),
+          pane("w1", "dev"),
           pane("w1", "test"),
           pane("w1", "sh"),
           agentPane("w2", 1, "done"),
@@ -168,6 +170,7 @@ const attentionScene = apply(
       ]
     },
     ...Object.entries({
+      "w1:dev": "npm run dev",
       "w1:test": "vitest --watch",
       "w1:sh": "-zsh",
       "w2:dev": "next dev",

@@ -1,6 +1,6 @@
 import type { ResolvedThemeSnapshot } from "../model.js";
 import { keySvg, stripRegionSvg } from "../render.js";
-import type { PaneAttention } from "./attention.js";
+import type { AttentionReason } from "./attention.js";
 import type { DeviceLayout } from "./geometry.js";
 import type { EncoderFace, KeyFace } from "./surface.js";
 
@@ -8,13 +8,15 @@ import type { EncoderFace, KeyFace } from "./surface.js";
  * What a key says when it is asking.
  *
  * Plain words rather than the internal names: `waiting` is a reason in the
- * model, but "NEEDS YOU" is what the developer has to act on. A dead service has
- * no entry because it has no key — `PaneAttention` excludes it, so this record
- * cannot grow one by accident.
+ * model, but "NEEDS YOU" is what the developer has to act on. Every reason has
+ * a word, because a dead service usually does keep its key — the pane it ran in
+ * outlives it — and a key with a mark and no word would say the least useful
+ * half of what it knows.
  */
-const ATTENTION_WORDS: Record<PaneAttention, string> = {
+const ATTENTION_WORDS: Record<AttentionReason, string> = {
   waiting: "NEEDS YOU",
-  finished: "FINISHED"
+  finished: "FINISHED",
+  exited: "EXITED"
 };
 
 /**
@@ -50,11 +52,22 @@ function keyView(face: KeyFace): Parameters<typeof keySvg>[0] {
         label: face.label,
         detail: face.attention ? ATTENTION_WORDS[face.attention] : face.role.toUpperCase(),
         ...(face.status ? { status: face.status } : {}),
-        ...(face.attention ? { attention: true } : {})
+        ...(face.attention ? { attention: true } : {}),
+        // A dead service is the only thing on this device that is simply broken,
+        // and it is the one face with no agent state to colour its outline — so
+        // without this the most urgent key would be the faintest one on the grid.
+        ...(face.attention === "exited" ? { danger: true } : {})
       };
     case "more":
       // A count of what the row had no key for, named so the number is not bare.
-      return { label: "MORE", count: face.count };
+      // It carries the mark when something behind it is asking, because the
+      // channel's total counts those panes and they have no key of their own.
+      return {
+        label: face.attention ? ATTENTION_WORDS[face.attention] : "MORE",
+        count: face.count,
+        ...(face.attention ? { attention: true } : {}),
+        ...(face.attention === "exited" ? { danger: true } : {})
+      };
     case "text":
       return { label: face.label, detail: face.detail };
   }

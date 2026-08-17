@@ -82,10 +82,13 @@ export type WorkspaceSnapshot = {
    * session the instant its process ends, while a workspace and its tokens
    * survive their panes — so this is where `sd_exit_*` is read from.
    *
-   * Absent rather than empty when there are none: Herdr omits the field, and a
-   * cleared token is reported by omitting it again.
+   * Nullable as well as optional, because Herdr has been observed doing both: a
+   * `workspace_metadata_updated` push omits the field entirely once a token is
+   * cleared, while `-2gn` recorded `tokens` arriving as literally `null` on a
+   * snapshot. Neither is an empty object, and readers must treat all three the
+   * same.
    */
-  tokens?: Record<string, string>;
+  tokens?: Record<string, string> | null;
 };
 
 /**

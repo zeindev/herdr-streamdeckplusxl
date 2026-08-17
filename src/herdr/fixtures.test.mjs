@@ -118,3 +118,29 @@ test("pane_updated dominates the capture, which is why consumers must coalesce",
   assert.ok(paneUpdates > 0);
   assert.ok(fixture.events.length > paneUpdates, "the per-kind cap lets other events survive");
 });
+
+test("a workspace token survives the leg the reducer actually reads", () => {
+  // The test above proves the pushed event carries tokens, and the reducer never
+  // looks at it: a metadata change is structural, so it re-reads the snapshot and
+  // discards the payload. Recorded from a real `session.snapshot` so the leg the
+  // code depends on is the leg the fixture pins.
+  const workspace = fixture.snapshotWorkspaceWithTokens;
+  assert.ok(workspace, "the fixture must carry a snapshot workspace with tokens");
+  assert.equal(typeof workspace.workspace_id, "string");
+  assert.equal(workspace.tokens.sd_exit_dev, `1 ${workspace.workspace_id}:p1`);
+
+  // The value's shape is the contract between the wrapper and the reader: the
+  // exit status, then the pane it ran in.
+  const [status, paneId] = workspace.tokens.sd_exit_dev.split(/\s+/);
+  assert.equal(status, "1");
+  assert.ok(paneId.startsWith(workspace.workspace_id), "the pane belongs to the workspace that declared it");
+});
+
+test("the fixture says where its later additions came from", () => {
+  // The capture script writes `capturedAt` and `events` and nothing else, so two
+  // events and a snapshot workspace appearing without a word would look
+  // hand-written. They were recorded live; this is the note saying so.
+  assert.ok(fixture.appended, "anything added after the capture run must say so");
+  assert.match(fixture.appended.by, /recorded live/);
+  assert.ok(Array.isArray(fixture.appended.what) && fixture.appended.what.length > 0);
+});

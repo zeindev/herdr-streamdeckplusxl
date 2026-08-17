@@ -17,13 +17,33 @@ const attachXl = { kind: "device-attached", device: { id: "xl-1", type: DEVICE_T
 
 const BLANK = { kind: "blank" };
 
+/**
+ * A `pane.process_info` reply, in the envelope the reducer reads.
+ *
+ * The whole envelope under `info`, not a bare process under `process`. The
+ * wrong shape type-checks in a .mjs file and delivers nothing, so every pane
+ * silently became a shell — which is what these tests asserted against until
+ * a preview scene made the gap visible.
+ */
+function runningIn(paneId, cmdline) {
+  return {
+    kind: "herdr-process-info",
+    paneId,
+    info: {
+      pane_id: paneId,
+      foreground_process_group_id: 1,
+      foreground_processes: [{ pid: 1, name: "x", argv0: cmdline.split(" ")[0], cmdline }]
+    }
+  };
+}
+
 function liveState({ workspaces = [], panes = [], worktrees = [], processes = {} } = {}) {
   return run([
     attachXl,
     { kind: "herdr-connection", connected: true },
     { kind: "herdr-snapshot", snapshot: { workspaces, panes, tabs: [] } },
     { kind: "herdr-worktrees", worktrees },
-    ...Object.entries(processes).map(([paneId, process]) => ({ kind: "herdr-process-info", paneId, process }))
+    ...Object.entries(processes).map(([paneId, cmdline]) => runningIn(paneId, cmdline))
   ]);
 }
 
@@ -120,7 +140,7 @@ test("a channel's rows are its roles, top to bottom", () => {
         paneOn("w1", "agent", { agent: "claude", agent_status: "blocked" }),
         paneOn("w1", "shell")
       ],
-      processes: { "w1:shell": { pid: 1, name: "zsh", argv0: "zsh", cmdline: "-zsh" } }
+      processes: { "w1:shell": "-zsh" }
     })
   ).devices[0];
 
@@ -137,7 +157,7 @@ test("a pane with no agent reports no state, since Herdr has none to give", () =
     liveState({
       workspaces: [workspaceOn(1, "auth")],
       panes: [paneOn("w1", "sh")],
-      processes: { "w1:sh": { pid: 1, name: "zsh", argv0: "zsh", cmdline: "-zsh" } }
+      processes: { "w1:sh": "-zsh" }
     })
   ).devices[0];
 
@@ -358,7 +378,7 @@ test("a change names the device and index so the adapter can address it", () => 
  */
 
 /** A live state whose stored acknowledgements are already in place. */
-function liveStateSeen({ workspaces = [], panes = [], acknowledged = [] } = {}) {
+function liveStateAcknowledged({ workspaces = [], panes = [], acknowledged = [] } = {}) {
   return run([
     attachXl,
     { kind: "settings-loaded", slots: readSlots(undefined), roles: {}, acknowledged },
@@ -385,7 +405,7 @@ test("an agent waiting on input is marked on its own key", () => {
 
 test("a finished agent asks on its key until it is acknowledged, and stays finished after", () => {
   const asking = surfaceOf(
-    liveStateSeen({
+    liveStateAcknowledged({
       workspaces: [workspaceOn(1, "auth")],
       panes: [paneOn("w1", "a", { agent: "claude", agent_status: "done" })]
     })
@@ -393,7 +413,7 @@ test("a finished agent asks on its key until it is acknowledged, and stays finis
   assert.equal(rowOf(asking, 0, 0)[0].attention, "finished");
 
   const seen = surfaceOf(
-    liveStateSeen({
+    liveStateAcknowledged({
       workspaces: [workspaceOn(1, "auth")],
       panes: [paneOn("w1", "a", { agent: "claude", agent_status: "done" })],
       acknowledged: ["w1:a"]
@@ -432,9 +452,9 @@ test("a workstream's outstanding attention is on its strip with no press at all"
 
 test("acknowledging takes the count down as well as the mark", () => {
   const panes = [paneOn("w1", "a", { agent: "claude", agent_status: "done" })];
-  const asking = surfaceOf(liveStateSeen({ workspaces: [workspaceOn(1, "auth")], panes })).devices[0];
+  const asking = surfaceOf(liveStateAcknowledged({ workspaces: [workspaceOn(1, "auth")], panes })).devices[0];
   const seen = surfaceOf(
-    liveStateSeen({ workspaces: [workspaceOn(1, "auth")], panes, acknowledged: ["w1:a"] })
+    liveStateAcknowledged({ workspaces: [workspaceOn(1, "auth")], panes, acknowledged: ["w1:a"] })
   ).devices[0];
 
   assert.equal(readingOf(asking.encoders[0], "ATTN"), "1");
@@ -496,5 +516,72 @@ test("attention changing redraws only the controls that moved", () => {
     changes.map((change) => `${change.control}:${change.index}`),
     ["key:0", "encoder:0", "encoder:1"],
     "the pane's key and its own channel's two regions, and nothing belonging to another stream"
+  );
+});
+
+test("an asking pane hidden behind the overflow count still marks the grid", () => {
+  // The channel's total counts panes the row had no key for, so without this a
+  // developer could watch ATTN rise with nothing anywhere on the grid to look at.
+  // Agents, because only an agent can be waiting — and four of them overflow a
+  // three-column row, so the fourth has no key of its own.
+  const panes = [1, 2, 3, 4].map((n) =>
+    paneOn("w1", `a${n}`, { agent: "claude", agent_status: n === 4 ? "blocked" : "working" })
+  );
+  const [device] = surfaceOf(
+    liveState({
+      workspaces: [workspaceOn(1, "auth")],
+      panes,
+      processes: Object.fromEntries(panes.map((pane) => [pane.pane_id, "claude"]))
+    })
+  ).devices;
+
+  const more = rowOf(device, 0, 0)[2];
+  assert.equal(more.kind, "more");
+  assert.ok(more.count > 0, "some panes had no key");
+  assert.equal(more.attention, "waiting", "the count says what is hiding behind it");
+  assert.equal(readingOf(device.encoders[0], "ATTN"), "1", "and the strip counts the same pane");
+});
+
+test("an overflow count hiding nothing urgent stays quiet", () => {
+  const panes = [1, 2, 3, 4].map((n) => paneOn("w1", `a${n}`, { agent: "claude", agent_status: "working" }));
+  const [device] = surfaceOf(
+    liveState({
+      workspaces: [workspaceOn(1, "auth")],
+      panes,
+      processes: Object.fromEntries(panes.map((pane) => [pane.pane_id, "claude"]))
+    })
+  ).devices;
+
+  const more = rowOf(device, 0, 0)[2];
+  assert.equal(more.kind, "more");
+  assert.equal(more.attention, undefined);
+});
+
+test("a dead service is marked on the pane it ran in, while that pane is there", () => {
+  // Probed live: a service crashing under the wrapper leaves its pane standing,
+  // so the item has a key after all. An earlier version put it on the strip only.
+  const crashed = { ...workspaceOn(1, "auth"), tokens: { sd_exit_dev: "1 w1:dev" } };
+  const [device] = surfaceOf(
+    liveState({
+      workspaces: [crashed],
+      panes: [paneOn("w1", "dev")],
+      processes: { "w1:dev": "npm run dev" }
+    })
+  ).devices;
+
+  const face = rowOf(device, 0, 1)[0];
+  assert.equal(face.kind, "pane", "the server row still holds the pane it died in");
+  assert.equal(face.attention, "exited");
+  assert.equal(readingOf(device.encoders[0], "EXIT"), "1", "and it is still counted on the strip");
+});
+
+test("a dead service whose pane really did go falls back to the strip alone", () => {
+  const crashed = { ...workspaceOn(1, "auth"), tokens: { sd_exit_dev: "1 w1:gone" } };
+  const [device] = surfaceOf(liveState({ workspaces: [crashed], panes: [] })).devices;
+
+  assert.equal(readingOf(device.encoders[0], "EXIT"), "1");
+  assert.ok(
+    device.keys.every((key) => key.attention === undefined),
+    "no key may be marked for a pane the device is not showing"
   );
 });

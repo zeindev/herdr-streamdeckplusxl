@@ -77,7 +77,7 @@ export type Command =
   /** Persist role corrections, which outlive the panes they were made on. */
   | { kind: "save-roles"; roles: RoleOverrides }
   /**
-   * Persist which finished work has been seen. Herdr reports `done` and has no
+   * Persist which finished work is acknowledged. Herdr reports `done` and has no
    * concept of acknowledged, so without this every restart would ask again about
    * work the developer dealt with yesterday.
    */

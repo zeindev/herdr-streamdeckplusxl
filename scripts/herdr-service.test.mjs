@@ -31,20 +31,22 @@ function withStubHerdr() {
 /**
  * Runs the wrapper, returning its status and every `herdr` call it made.
  *
- * The inherited environment is stripped of `HERDR_WORKSPACE_ID` before anything
- * is set, because these tests are themselves usually run from inside a Herdr
- * pane — leaving it in place made "outside Herdr" mean "inside the developer's
- * own workspace", and the case would have passed by testing nothing.
+ * The inherited environment is stripped of `HERDR_WORKSPACE_ID` and
+ * `HERDR_PANE_ID` before anything is set, because these tests are themselves
+ * usually run from inside a Herdr pane — leaving them in place made "outside
+ * Herdr" mean "inside the developer's own workspace", and the case would have
+ * passed by testing nothing.
  */
-function runWrapper(args, { workspaceId = "w1" } = {}) {
+function runWrapper(args, { workspaceId = "w1", paneId = "w1:p2" } = {}) {
   const { directory, log } = withStubHerdr();
-  const { HERDR_WORKSPACE_ID: _inherited, ...environment } = process.env;
+  const { HERDR_WORKSPACE_ID: _workspace, HERDR_PANE_ID: _pane, ...environment } = process.env;
   const result = spawnSync(WRAPPER, args, {
     encoding: "utf8",
     env: {
       ...environment,
       PATH: `${directory}:${process.env.PATH}`,
-      ...(workspaceId === null ? {} : { HERDR_WORKSPACE_ID: workspaceId })
+      ...(workspaceId === null ? {} : { HERDR_WORKSPACE_ID: workspaceId }),
+      ...(paneId === null ? {} : { HERDR_PANE_ID: paneId })
     }
   });
   const calls = existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean) : [];
@@ -63,6 +65,24 @@ test("a service that exits cleanly declares nothing", () => {
 test("a service that dies declares its status on the workspace", () => {
   const { status, calls } = runWrapper(["dev", "sh", "-c", "exit 3"]);
   assert.equal(status, 3, "the wrapper is transparent about what the service did");
+  assert.deepEqual(tokenCalls(calls), [
+    "workspace report-metadata w1 --source streamdeck-service --token sd_exit_dev=3 w1:p2"
+  ]);
+});
+
+test("the declaration names the pane the service ran in, so the item can find a key", () => {
+  // A service crashing under this wrapper does not end the pane's shell, so the
+  // pane is still on the device afterwards. Probed on a running Herdr: the pane
+  // survives and pane_exited never fires. Carrying the pane id is what lets the
+  // dead service be marked on its own key instead of the strip alone.
+  const { calls } = runWrapper(["dev", "sh", "-c", "exit 3"], { paneId: "w9:p4" });
+  assert.deepEqual(tokenCalls(calls), [
+    "workspace report-metadata w1 --source streamdeck-service --token sd_exit_dev=3 w9:p4"
+  ]);
+});
+
+test("with no pane to name, the status travels alone rather than malformed", () => {
+  const { calls } = runWrapper(["dev", "sh", "-c", "exit 3"], { paneId: null });
   assert.deepEqual(tokenCalls(calls), [
     "workspace report-metadata w1 --source streamdeck-service --token sd_exit_dev=3"
   ]);
@@ -115,7 +135,7 @@ test("a name at the limit is accepted, so the limit is the limit and not one les
   const { status, calls } = runWrapper([name, "sh", "-c", "exit 1"]);
   assert.equal(status, 1);
   assert.deepEqual(tokenCalls(calls), [
-    `workspace report-metadata w1 --source streamdeck-service --token sd_exit_${name}=1`
+    `workspace report-metadata w1 --source streamdeck-service --token sd_exit_${name}=1 w1:p2`
   ]);
 });
 
@@ -142,7 +162,7 @@ test("the declared value is the status the reader treats as a bad exit", () => {
   // The two halves have to agree: the wrapper writes the status as a decimal
   // string, and the reader ignores "0". A wrapper that wrote something else, or
   // a reader that parsed something else, would make the signal silent.
-  const { calls } = runWrapper(["dev", "sh", "-c", "exit 137"]);
+  const { calls } = runWrapper(["dev", "sh", "-c", "exit 137"], { paneId: null });
   const [declared] = tokenCalls(calls);
   assert.equal(declared.endsWith("--token sd_exit_dev=137"), true);
 });

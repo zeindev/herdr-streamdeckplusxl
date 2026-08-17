@@ -13,7 +13,11 @@ import {
   sameAcknowledged,
   storedAcknowledged
 } from "../../.preview/device/attention.js";
-import { recordedEvent, recordedWorkspace } from "../herdr/fixtures/recorded.mjs";
+import {
+  recordedEvent,
+  recordedSnapshotWorkspaceWithTokens,
+  recordedWorkspace
+} from "../herdr/fixtures/recorded.mjs";
 
 /** An agent pane in a workstream, at whatever state the caller names. */
 const agent = (paneId, agent_status, workspace_id = "w1") => ({
@@ -68,12 +72,77 @@ test("a pane with no agent never reports a state, whatever Herdr says its status
   assert.deepEqual(attentionOf({ panes }), []);
 });
 
-test("a declared bad exit is asking, and names the service rather than a pane", () => {
-  // It cannot name a pane: probing a running Herdr showed the pane leaves the
-  // session the instant its process ends, so by the time anything reads this
-  // there is no pane and no key. The workstream is all that is left to point at.
+test("a declared bad exit is asking, and names the service", () => {
   const items = attentionOf({ panes: [], workspaces: [workspaceWith({ [`${EXIT_TOKEN_PREFIX}dev`]: "1" })] });
   assert.deepEqual(items, [{ workspaceId: "w1", reason: "exited", service: "dev", status: "1" }]);
+});
+
+test("the declaration Herdr really returned is read the way the wrapper wrote it", () => {
+  // End to end on recorded traffic rather than a hand-built token: the wrapper
+  // wrote this, Herdr stored it, session.snapshot returned it, and the reader
+  // takes the status and the pane back out of it.
+  const workspace = recordedSnapshotWorkspaceWithTokens();
+  const paneId = `${workspace.workspace_id}:p1`;
+  const panes = [service(paneId, workspace.workspace_id)];
+
+  assert.deepEqual(attentionOf({ panes, workspaces: [workspace] }), [
+    { workspaceId: workspace.workspace_id, reason: "exited", service: "dev", status: "1", paneId }
+  ]);
+});
+
+test("a dead service keeps the key of the pane it ran in, while that pane is there", () => {
+  // Probed on a running Herdr: a service crashing under the wrapper does NOT end
+  // the pane's shell, so the pane is still on the device and pane_exited never
+  // fires. An earlier version of this claimed the pane was always gone — true of
+  // the pane_exited case that was rejected, not of the one that was built.
+  const panes = [service("w1:p2")];
+  const workspaces = [workspaceWith({ [`${EXIT_TOKEN_PREFIX}dev`]: "1 w1:p2" })];
+  assert.deepEqual(attentionOf({ panes, workspaces }), [
+    { workspaceId: "w1", reason: "exited", service: "dev", status: "1", paneId: "w1:p2" }
+  ]);
+  assert.deepEqual([...attentionByPane(attentionOf({ panes, workspaces }))], [["w1:p2", "exited"]]);
+});
+
+test("a declaration cannot point at a pane in someone else's workstream", () => {
+  // Found by running the real wrapper against a live Herdr: it inherited a
+  // HERDR_PANE_ID from the surrounding shell, so the token named a pane in a
+  // different workstream — and the reader believed it, stamping "your service
+  // died" onto an unrelated agent's key. A pane id proves nothing on its own.
+  const panes = [agent("w2:p1", "working", "w2")];
+  const workspaces = [workspaceWith({ [`${EXIT_TOKEN_PREFIX}dev`]: "1 w2:p1" }, "w1")];
+  const items = attentionOf({ panes, workspaces });
+
+  assert.deepEqual(items, [{ workspaceId: "w1", reason: "exited", service: "dev", status: "1" }]);
+  assert.equal(attentionByPane(items).size, 0, "no key in another workstream may be marked");
+});
+
+test("a named pane that is gone is dropped, never pointed at anyway", () => {
+  // The pane id comes out of a token that outlives whatever wrote it. Keeping a
+  // dead one would put the mark on whatever now sits in that position, or on
+  // nothing at all, so the item falls back to the strip instead.
+  const workspaces = [workspaceWith({ [`${EXIT_TOKEN_PREFIX}dev`]: "1 w1:p2" })];
+  const items = attentionOf({ panes: [], workspaces });
+  assert.deepEqual(items, [{ workspaceId: "w1", reason: "exited", service: "dev", status: "1" }]);
+  assert.equal(attentionByPane(items).size, 0);
+});
+
+test("every pane an item names is a pane the device is showing", () => {
+  // The invariant the keys rest on, checked across every shape at once.
+  const panes = [agent("w1:p1", "blocked"), service("w1:p2")];
+  const workspaces = [
+    workspaceWith({
+      [`${EXIT_TOKEN_PREFIX}dev`]: "1 w1:p2",
+      [`${EXIT_TOKEN_PREFIX}api`]: "1 w1:gone",
+      [`${EXIT_TOKEN_PREFIX}web`]: "1"
+    })
+  ];
+  const owners = new Map(panes.map((pane) => [pane.pane_id, pane.workspace_id]));
+  for (const item of attentionOf({ panes, workspaces })) {
+    if (item.paneId) {
+      assert.equal(owners.get(item.paneId), item.workspaceId, `${item.paneId} is not this workstream's pane`);
+    }
+  }
+  assert.equal(attentionOf({ panes, workspaces }).length, 4, "the two keyless exits are still counted");
 });
 
 test("a clean exit raises nothing, and the reader is what refuses it", () => {
@@ -158,7 +227,7 @@ test("only what has a pane can reach a key", () => {
   };
   const byPane = attentionByPane(attentionOf(snapshot));
   assert.deepEqual([...byPane], [["w1:p1", "waiting"]]);
-  assert.equal(byPane.size, 1, "the dead service has no key to land on and must not invent one");
+  assert.equal(byPane.size, 1, "an exit that named no pane must not invent one");
 });
 
 test("a pane waiting and finished at once is one thing, not two", () => {
@@ -188,7 +257,7 @@ test("an agent that goes back to work un-acknowledges itself, so the next finish
   const done = { panes: [agent("w1:p1", "done")] };
   const working = { panes: [agent("w1:p1", "working")] };
 
-  assert.deepEqual(keepAcknowledged(["w1:p1"], done), ["w1:p1"], "still finished, still seen");
+  assert.deepEqual(keepAcknowledged(["w1:p1"], done), ["w1:p1"], "still finished, still acknowledged");
   assert.deepEqual(keepAcknowledged(["w1:p1"], working), [], "back at work, so the mark is spent");
   assert.deepEqual(reasons(attentionOf(done, keepAcknowledged(["w1:p1"], working))), ["finished"]);
 });

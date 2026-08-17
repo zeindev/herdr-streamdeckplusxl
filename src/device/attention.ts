@@ -9,50 +9,51 @@ import type { HerdrSnapshot, PaneSnapshot, WorkspaceSnapshot } from "../model.js
  *
  * - `waiting` — an agent is blocked on input. Herdr says so itself.
  * - `finished` — an agent is done and nobody has looked at it yet. Herdr reports
- *   done; unseen-ness is the plugin's, because Herdr has no concept of it.
+ *   done; whether it has been acknowledged is the plugin's, because Herdr has
+ *   no concept of it.
  * - `exited` — a service ended badly and said so. Herdr's own `pane_exited`
- *   cannot say this: it carries no exit status, and the pane it names is gone
- *   from the session by the time the event arrives, so there is neither a code
- *   to read nor a key to put the answer on. See `EXIT_TOKEN_PREFIX`.
+ *   cannot say this: it carries no exit status, and for the case that matters
+ *   it does not fire at all. See `EXIT_TOKEN_PREFIX`.
  */
 export type AttentionReason = "waiting" | "finished" | "exited";
 
 /**
- * The reasons a *key* can carry.
- *
- * `exited` is excluded by the type rather than by a rule someone has to
- * remember: the pane it would name is gone from the session, so there is no key
- * to draw it on, and anything trying to put one there fails to compile.
- */
-export type PaneAttention = Exclude<AttentionReason, "exited">;
-
-/**
  * One thing asking for the developer, and what it belongs to.
  *
- * `waiting` and `finished` name a pane, so they can show on that pane's key.
- * `exited` cannot: the pane died with its process. It names the service instead
- * and shows on the workstream's strip only. That asymmetry is real and the
- * device says so rather than inventing a key for a pane that no longer exists.
+ * `waiting` and `finished` always name a pane, because an agent is alive to
+ * report on itself. `exited` names one only *sometimes*, and the optionality is
+ * the honest part: a service crashing under the wrapper leaves its pane
+ * standing, so there usually is a key to mark, but a service that was the
+ * pane's whole command takes the pane with it and leaves only the workstream.
+ *
+ * Wherever `paneId` is set it names a pane that is in the snapshot. That is an
+ * invariant of `attentionOf`, not a hope — a key cannot be drawn for a pane the
+ * device is not showing.
  */
 export type AttentionItem =
-  | { workspaceId: string; reason: PaneAttention; paneId: string }
-  | { workspaceId: string; reason: "exited"; service: string; status: string };
+  | { workspaceId: string; reason: "waiting" | "finished"; paneId: string }
+  | { workspaceId: string; reason: "exited"; service: string; status: string; paneId?: string };
 
 /**
  * The prefix of a workspace token declaring that a service ended badly.
  *
- * Workspace-scoped rather than pane-scoped, which is forced rather than chosen:
- * probing a running Herdr 0.8.0 showed that a pane and every token on it vanish
- * from the session the instant its process ends, so a declaration written on the
- * pane would be written into nothing. A workspace survives its panes, and its
- * tokens survive with it.
+ * Workspace-scoped rather than pane-scoped, and this is a choice with a cost
+ * rather than the only possibility. Probing a running Herdr 0.8.0 both ways:
+ * a pane and every token on it vanish the instant the pane's own shell ends,
+ * but a service crashing *under the wrapper* does not end that shell, so in the
+ * ordinary case a pane token would survive and would even carry a key. The
+ * workspace wins anyway because it is the scope that cannot be lost — run the
+ * wrapper as a pane's whole command and the pane goes, and a crash reported
+ * nowhere is the worst thing a supervision surface can do.
  *
  * The name after the prefix is the service's, so two dead services in one
- * workstream stay two items. The value is the exit status.
+ * workstream stay two items. The value is the exit status, optionally followed
+ * by the pane the service ran in, which is how the item finds a key when there
+ * is still one to find.
  */
 export const EXIT_TOKEN_PREFIX = "sd_exit_";
 
-/** Pane ids whose finished agent the developer has already seen. */
+/** Pane ids whose finished agent the developer has already acknowledged. */
 export type Acknowledged = readonly string[];
 
 /**
@@ -63,15 +64,20 @@ export type Acknowledged = readonly string[];
  */
 export function attentionOf(snapshot: HerdrSnapshot | null, acknowledged: Acknowledged = []): AttentionItem[] {
   if (!snapshot) return [];
-  const seen = new Set(acknowledged);
+  const alreadyAcknowledged = new Set(acknowledged);
+  // Which workspace each pane belongs to, not merely which panes exist. A
+  // declaration names a pane by id, and an id is not proof of anything: Herdr
+  // numbers panes `w<n>:p<n>` and reuses them across sessions, so a token
+  // written before a restart can name a pane that now belongs to someone else.
+  const paneOwners = new Map(snapshot.panes.map((pane) => [pane.pane_id, pane.workspace_id]));
   const items: AttentionItem[] = [];
 
-  for (const pane of snapshot.panes ?? []) {
-    const reason = paneReason(pane, seen);
+  for (const pane of snapshot.panes) {
+    const reason = paneReason(pane, alreadyAcknowledged);
     if (reason && pane.workspace_id) items.push({ workspaceId: pane.workspace_id, reason, paneId: pane.pane_id });
   }
   for (const workspace of snapshot.workspaces ?? []) {
-    for (const declared of exitsOf(workspace)) items.push(declared);
+    for (const declared of exitsOf(workspace, paneOwners)) items.push(declared);
   }
 
   return items.sort(byWorkspaceThenReasonThenName);
@@ -85,13 +91,13 @@ export function attentionIn(items: readonly AttentionItem[], workspaceId: string
 /**
  * What each pane is asking for, by pane id, for the keys.
  *
- * Items with no pane are absent rather than dropped silently — they are counted
- * on the strip by `attentionIn`, which is the only place they can be shown.
+ * An item with no pane simply is not here. It has not been lost: `attentionIn`
+ * still hands it to the channel strip, which is the only place left to show it.
  */
-export function attentionByPane(items: readonly AttentionItem[]): ReadonlyMap<string, PaneAttention> {
-  const byPane = new Map<string, PaneAttention>();
+export function attentionByPane(items: readonly AttentionItem[]): ReadonlyMap<string, AttentionReason> {
+  const byPane = new Map<string, AttentionReason>();
   for (const item of items) {
-    if (item.reason !== "exited" && !byPane.has(item.paneId)) byPane.set(item.paneId, item.reason);
+    if (item.paneId && !byPane.has(item.paneId)) byPane.set(item.paneId, item.reason);
   }
   return byPane;
 }
@@ -103,7 +109,7 @@ export function attentionByPane(items: readonly AttentionItem[]): ReadonlyMap<st
  * `unknown` for its status — 4 live panes out of 5 did — so reading a status off
  * a service would put attention on every shell in every channel.
  */
-function paneReason(pane: PaneSnapshot, acknowledged: ReadonlySet<string>): PaneAttention | null {
+function paneReason(pane: PaneSnapshot, acknowledged: ReadonlySet<string>): "waiting" | "finished" | null {
   if (!pane.agent) return null;
   if (pane.agent_status === "blocked") return "waiting";
   if (pane.agent_status === "done") return acknowledged.has(pane.pane_id) ? null : "finished";
@@ -129,17 +135,31 @@ function paneReason(pane: PaneSnapshot, acknowledged: ReadonlySet<string>): Pane
  * must not be able to ring a bell. A token with no name after the prefix is
  * refused too, because two nameless declarations could not be told apart and
  * would collapse into one.
+ *
+ * A pane named after the status is kept only if it is still here AND still
+ * belongs to this workspace. Both halves are load-bearing, and the second was
+ * found by running the wrapper for real: a token that named a pane in a
+ * different workstream stamped "your service died" onto an unrelated agent's
+ * key. A pane id is not proof of anything on its own — anything can write one,
+ * and Herdr reuses them — so the declaration is only believed about a pane the
+ * declaring workspace actually owns.
  */
-function exitsOf(workspace: WorkspaceSnapshot): AttentionItem[] {
+function exitsOf(workspace: WorkspaceSnapshot, paneOwners: ReadonlyMap<string, string | undefined>): AttentionItem[] {
   const tokens = workspace.tokens;
   if (!tokens) return [];
   const declared: AttentionItem[] = [];
   for (const [name, value] of Object.entries(tokens)) {
     if (!name.startsWith(EXIT_TOKEN_PREFIX)) continue;
     const service = name.slice(EXIT_TOKEN_PREFIX.length);
-    const status = typeof value === "string" ? value.trim() : "";
+    const [status = "", paneId] = String(value ?? "").trim().split(/\s+/);
     if (!service || status === "" || isCleanExit(status)) continue;
-    declared.push({ workspaceId: workspace.workspace_id, reason: "exited", service, status });
+    declared.push({
+      workspaceId: workspace.workspace_id,
+      reason: "exited",
+      service,
+      status,
+      ...(paneId && paneOwners.get(paneId) === workspace.workspace_id ? { paneId } : {})
+    });
   }
   return declared;
 }
@@ -168,14 +188,14 @@ function nameOf(item: AttentionItem): string {
  *
  * Acknowledging is not its own gesture. Tapping a pane key already focuses that
  * pane in Herdr, which is the developer going to look at it, so that same tap is
- * what marks it seen. A separate button would be a second thing to remember for
+ * what acknowledges it. A separate button would be a second thing to remember for
  * an act the first one already performs.
  */
 export function acknowledges(pane: PaneSnapshot | undefined): boolean {
   return Boolean(pane?.agent) && pane?.agent_status === "done";
 }
 
-/** Marks a pane's finished work as seen. Already-seen panes are left alone. */
+/** Acknowledges a pane's finished work. An already-acknowledged pane is left alone. */
 export function acknowledge(acknowledged: Acknowledged, paneId: string): Acknowledged {
   return acknowledged.includes(paneId) ? acknowledged : [...acknowledged, paneId];
 }

@@ -1,5 +1,5 @@
 import type { AgentStatus, PaneSnapshot } from "../model.js";
-import { attentionByPane, attentionIn, attentionOf, type AttentionItem, type PaneAttention } from "./attention.js";
+import { attentionByPane, attentionIn, attentionOf, type AttentionItem, type AttentionReason } from "./attention.js";
 import { CHANNEL_COUNT, channelKeyIndex, keyCount, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
 import type { PaneCell } from "./panes.js";
 import { paneKeyLabel } from "./panes.js";
@@ -32,10 +32,17 @@ export type KeyFace =
    * A finished agent stays finished after the developer has looked at it; what
    * changes is that it has stopped asking. Folding the two together would mean
    * either lying about the status or never being able to stop asking.
+   *
+   * A pane running no agent can still carry `exited`, since the service that
+   * died was running in it and the pane outlived the service.
    */
-  | { kind: "pane"; label: string; role: Role; status?: AgentStatus; attention?: PaneAttention }
-  /** Panes a row had no key for. A count, never silence. */
-  | { kind: "more"; count: number }
+  | { kind: "pane"; label: string; role: Role; status?: AgentStatus; attention?: AttentionReason }
+  /**
+   * Panes a row had no key for. A count, never silence — and marked when one of
+   * the panes it stands for is asking, so a rise in the channel's total always
+   * has somewhere on the grid that explains it.
+   */
+  | { kind: "more"; count: number; attention?: AttentionReason }
   /** An unassigned channel, which invites a worktree rather than showing nothing. */
   | { kind: "empty"; slot: number };
 
@@ -67,6 +74,9 @@ export type DeviceSurface = {
 export type Surface = { devices: DeviceSurface[] };
 
 const BLANK: KeyFace = { kind: "blank" };
+
+/** Which reason a `more` key reports when it hides several. Most urgent first. */
+const MORE_ATTENTION_ORDER: readonly AttentionReason[] = ["waiting", "exited", "finished"];
 const EMPTY_BLOCK: StripBlock = { branch: null, readings: [], notice: null };
 
 /**
@@ -104,7 +114,7 @@ function keysOf(
   state: State,
   layout: DeviceLayout,
   workstreams: ReadonlyArray<Workstream | null>,
-  attention: ReadonlyMap<string, PaneAttention>
+  attention: ReadonlyMap<string, AttentionReason>
 ): KeyFace[] {
   const keys = Array.from({ length: keyCount(layout) }, () => BLANK);
   for (let channel = 0; channel < CHANNEL_COUNT; channel++) {
@@ -126,14 +136,27 @@ function keysOf(
 function paneFace(
   cell: PaneCell,
   processes: PaneProcesses,
-  attention: ReadonlyMap<string, PaneAttention>
+  attention: ReadonlyMap<string, AttentionReason>
 ): KeyFace {
-  if (cell.kind === "more") return { kind: "more", count: cell.count };
+  if (cell.kind === "more") {
+    // The most urgent thing hiding behind the count, in the same order the
+    // items themselves are ranked, so which one surfaces never depends on the
+    // order Herdr listed the panes in.
+    const hidden = cell.panes.map((pane) => attention.get(pane.pane_id)).filter(Boolean) as AttentionReason[];
+    const worst = MORE_ATTENTION_ORDER.find((reason) => hidden.includes(reason));
+    return { kind: "more", count: cell.count, ...(worst ? { attention: worst } : {}) };
+  }
   const label = paneKeyLabel(cell.pane, processes[cell.pane.pane_id] ?? undefined, cell.role);
   const asking = attention.get(cell.pane.pane_id);
-  const raised = asking ? { attention: asking } : {};
-  if (!cell.pane.agent) return { kind: "pane", label, role: cell.role, ...raised };
-  return { kind: "pane", label, role: cell.role, status: cell.pane.agent_status, ...raised };
+  return {
+    kind: "pane",
+    label,
+    role: cell.role,
+    // A pane with no agent has no state to report, so the field is absent
+    // rather than carrying Herdr's `unknown` for every service on the device.
+    ...(cell.pane.agent ? { status: cell.pane.agent_status } : {}),
+    ...(asking ? { attention: asking } : {})
+  };
 }
 
 /**

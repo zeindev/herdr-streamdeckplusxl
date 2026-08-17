@@ -42,7 +42,12 @@ const agentPane = (status, overrides = {}) => ({
  * assertions break if what counts as needing the developer ever changes — the
  * strip's job is to report that number, not to decide it.
  */
-function blockOf(workstream, panes = [], { workspaces = [], acknowledged = [], ...options } = {}) {
+function blockOf(workstream, panes = [], { tokens = null, acknowledged = [], ...options } = {}) {
+  // Built from a workspace Herdr really sent, like every other fixture here, so
+  // a payload that changes shape fails the suite instead of passing against an
+  // invention.
+  const { tokens: _recorded, ...recorded } = recordedWorkspace();
+  const workspaces = [{ ...recorded, workspace_id: "w1", ...(tokens ? { tokens } : {}) }];
   const attention = attentionOf({ panes, workspaces }, acknowledged);
   return stripBlockOf(workstream, panes, {
     ...options,
@@ -207,8 +212,7 @@ test("a workstream keeps its readings even when the branch had to be cut", () =>
 
 test("a dead service is named on the strip, and spends the droppable reading to say so", () => {
   const workstream = workstreamOn("auth", { branch: "main" });
-  const workspaces = [{ workspace_id: "w1", tokens: { sd_exit_dev: "1", sd_exit_api: "137" } }];
-  const block = blockOf(workstream, [], { workspaces });
+  const block = blockOf(workstream, [], { tokens: { sd_exit_dev: "1", sd_exit_api: "137" } });
 
   assert.deepEqual(labelsOf(block), ["ATTN", "TKT", "PR", "EXIT"], "AGENTS is what gives way");
   assert.equal(valueOf(block, "ATTN"), "2");
@@ -226,8 +230,10 @@ test("EXIT gives way rather than overrunning the overflow count", () => {
   // once the overflow count takes its share. Marking EXIT required would not buy
   // the space, only overrun into the count, and two readings drawn over each
   // other are both unreadable. ATTN still carries the fact.
-  const workspaces = [{ workspace_id: "w1", tokens: { sd_exit_dev: "1" } }];
-  const block = blockOf(workstreamOn("auth", { branch: "main" }), [], { workspaces, reserved: OVERFLOW_CELLS });
+  const block = blockOf(workstreamOn("auth", { branch: "main" }), [], {
+    tokens: { sd_exit_dev: "1" },
+    reserved: OVERFLOW_CELLS
+  });
 
   assert.deepEqual(labelsOf(block), ["ATTN", "TKT", "PR"]);
   assert.equal(valueOf(block, "ATTN"), "1", "the count never stops telling the truth");
@@ -244,7 +250,7 @@ test("no combination of attention, dead services and reserved space overruns the
       for (const reserved of [0, OVERFLOW_CELLS, 15, 25, READING_CELLS - 1]) {
         const panes = Array.from({ length: waiting }, (_, index) => agentPane("blocked", { pane_id: `p${index}` }));
         const tokens = Object.fromEntries(Array.from({ length: dead }, (_, index) => [`sd_exit_s${index}`, "1"]));
-        const block = blockOf(workstream, panes, { workspaces: [{ workspace_id: "w1", tokens }], reserved });
+        const block = blockOf(workstream, panes, { tokens, reserved });
         const budget = READING_CELLS - reserved;
         const labels = labelsOf(block);
 

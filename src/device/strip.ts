@@ -141,9 +141,11 @@ function candidatesFor(
     // DRFT, or a number. Going wider is allowed and simply spends AGENTS, which
     // is what being the droppable one means.
     { label: "PR", value: UNKNOWN, required: true, reserve: 4 },
-    // A dead service is the one attention item with no key of its own, because
-    // its pane left the session when its process did. Without this the count
-    // would go up and nothing anywhere would say what to look at.
+    // A dead service usually keeps a key — crashing under the wrapper does not
+    // end the pane's shell — but it is the one item that can lose one, when the
+    // service was the pane's whole command. Naming it here means the count never
+    // rises with nothing anywhere to explain it, and it says which KIND of thing
+    // is asking without the developer having to look across the grid for a mark.
     //
     // Droppable even so, and the arithmetic is why: the three required readings
     // and this one come to 30 cells, but the last channel keeps only 23 once the

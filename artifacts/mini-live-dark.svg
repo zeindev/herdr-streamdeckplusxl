@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="488" height="344" viewBox="0 0 488 344">
+  <rect width="488" height="344" fill="#141414"/>
+  <svg x="14" y="14" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    <rect x="4" y="4" width="136" height="136" rx="18" fill="none" stroke="rgb(249 226 175)" stroke-width="5"/><circle cx="118" cy="26" r="10" fill="rgb(249 226 175)"/>
+    <text x="72" y="47" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(205 214 244)" text-anchor="middle">feat/</text><text x="72" y="76" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(205 214 244)" text-anchor="middle">auth</text><text x="72" y="105" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(205 214 244)" text-anchor="middle">rewrite</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(166 173 200)" text-anchor="middle" letter-spacing=".1">NEEDS YOU</text>
+  </svg>
+  <svg x="172" y="14" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    <rect x="4" y="4" width="136" height="136" rx="18" fill="none" stroke="rgb(137 180 250)" stroke-width="5"/>
+    <text x="72" y="47" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(205 214 244)" text-anchor="middle">feat/</text><text x="72" y="76" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(205 214 244)" text-anchor="middle">billing</text><text x="72" y="105" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(205 214 244)" text-anchor="middle">api</text>
+    
+  </svg>
+  <svg x="330" y="14" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    <rect x="4" y="4" width="136" height="136" rx="18" fill="none" stroke="rgb(166 227 161)" stroke-width="7"/><circle cx="118" cy="26" r="10" fill="rgb(166 227 161)"/>
+    <text x="72" y="64" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(205 214 244)" text-anchor="middle">perf/</text><text x="72" y="93" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(205 214 244)" text-anchor="middle">search</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(166 173 200)" text-anchor="middle" letter-spacing=".1">FINISHED</text>
+  </svg>
+  <svg x="14" y="172" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    <rect x="4" y="4" width="136" height="136" rx="18" fill="none" stroke="rgb(249 226 175)" stroke-width="5"/><circle cx="118" cy="26" r="10" fill="rgb(249 226 175)"/>
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(205 214 244)" text-anchor="middle">claude</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(166 173 200)" text-anchor="middle" letter-spacing=".1">NEEDS YOU</text>
+  </svg>
+  <svg x="172" y="172" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    <rect x="4" y="4" width="136" height="136" rx="18" fill="none" stroke="rgb(137 180 250)" stroke-width="5"/>
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(205 214 244)" text-anchor="middle">claude</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(166 173 200)" text-anchor="middle" letter-spacing=".1">AGENT</text>
+  </svg>
+  <svg x="330" y="172" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    <rect x="4" y="4" width="136" height="136" rx="18" fill="none" stroke="rgb(166 227 161)" stroke-width="7"/><circle cx="118" cy="26" r="10" fill="rgb(166 227 161)"/>
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(205 214 244)" text-anchor="middle">claude</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(166 173 200)" text-anchor="middle" letter-spacing=".1">FINISHED</text>
+  </svg>
+  
+</svg>

@@ -1,0 +1,107 @@
+#!/bin/sh
+#
+# herdr-service — run a service and declare a bad exit to the Stream Deck.
+#
+#   herdr-service dev npm run dev
+#   herdr-service api cargo run
+#
+# Why this exists. The Stream Deck raises attention when something needs the
+# developer, and a service that died is the clearest case of that. Herdr cannot
+# report it. `pane_exited` carries no exit status at all, and it does not even
+# fire for this case: probed on a running Herdr 0.8.0, a foreground command
+# dying leaves its pane alive and emits nothing but `pane_updated`. When the
+# event does fire — the pane's own shell ending — closing a pane on purpose and
+# a dev server dying are the same event from the same path, so nothing
+# downstream can separate them either. The separation is made here, where the
+# exit status is actually known (ADR-0005: attention is declared, never
+# inferred).
+#
+# What it declares. A workspace token `sd_exit_<name>`, whose value is the exit
+# status followed by the pane the service was running in.
+#
+# The WORKSPACE rather than the pane, and the reason is narrower than it looks.
+# A pane and its tokens do leave the session the instant the pane's own shell
+# ends — but a service crashing under this wrapper does NOT end the shell, so
+# in the ordinary case the pane is still there afterwards, and `pane_exited`
+# never fires. Probed on a running Herdr 0.8.0 both ways. The workspace is
+# still the right home because it is the one that cannot be lost: run this as a
+# pane's whole command rather than inside an interactive shell and the pane does
+# go, taking any pane token with it, and a crash reported nowhere is the worst
+# thing a supervision surface can do.
+#
+# The pane id rides along in the value so the plugin can still put the item on
+# that pane's key while the pane exists, and fall back to the channel strip when
+# it does not. Outside Herdr there is no pane id and the status travels alone.
+#
+# The token is cleared on every start, so restarting the service is what
+# resolves the attention item — nothing has to be dismissed by hand.
+#
+# What counts as a bad exit. Anything nonzero except a deliberate stop: 130 is
+# Ctrl-C, 143 is SIGTERM, 129 is the hangup a pane sends when it closes. Those
+# three are the developer stopping the service, and reporting them would make
+# the surface cry wolf every time a pane was closed — the exact failure this
+# whole approach exists to avoid.
+#
+# Outside Herdr it runs the command and declares nothing, so the same command
+# line works in CI and in a plain terminal.
+
+set -u
+
+TOKEN_PREFIX='sd_exit_'
+# Herdr's schema constrains a token NAME to ^[A-Za-z0-9_-]{1,32}$ (see
+# `herdr api schema --json`, PaneReportMetadataParams.tokens.propertyNames).
+# The prefix spends 8 of those 32, so a service name may be 24.
+MAX_NAME_LENGTH=24
+SOURCE='streamdeck-service'
+
+usage() {
+  echo "usage: herdr-service <name> <command> [args...]" >&2
+  echo "  <name>  what to call this service: letters, digits, _ or -, up to ${MAX_NAME_LENGTH}" >&2
+}
+
+if [ $# -lt 2 ]; then
+  usage
+  exit 2
+fi
+
+name=$1
+shift
+
+# Refused rather than corrected. A silently truncated or rewritten name would
+# collide with another service's, and two services reported as one is worse than
+# being told to pick a different name once, at the moment it is set up.
+case $name in
+  '' | *[!A-Za-z0-9_-]*)
+    echo "herdr-service: '${name}' is not a usable name: letters, digits, _ and - only" >&2
+    usage
+    exit 2
+    ;;
+esac
+
+if [ ${#name} -gt "$MAX_NAME_LENGTH" ]; then
+  echo "herdr-service: '${name}' is ${#name} characters; the longest allowed is ${MAX_NAME_LENGTH}" >&2
+  exit 2
+fi
+
+token="${TOKEN_PREFIX}${name}"
+
+# A declaration that cannot be delivered must never stop the service running.
+# The developer asked to run a dev server; the Stream Deck is the accessory.
+declare_to_herdr() {
+  [ -n "${HERDR_WORKSPACE_ID:-}" ] || return 0
+  herdr workspace report-metadata "$HERDR_WORKSPACE_ID" --source "$SOURCE" "$@" >/dev/null 2>&1 || true
+}
+
+# Starting clears whatever the last run left behind, which is what makes a
+# restart resolve the attention item on its own.
+declare_to_herdr --clear-token "$token"
+
+"$@"
+status=$?
+
+case $status in
+  0 | 129 | 130 | 143) ;;
+  *) declare_to_herdr --token "${token}=${status}${HERDR_PANE_ID:+ ${HERDR_PANE_ID}}" ;;
+esac
+
+exit $status

@@ -1,0 +1,1262 @@
+{
+  "capturedAt": "2026-08-16T23:40:56.511Z",
+  "appended": {
+    "at": "2026-08-17",
+    "by": "ticket -d9e, recorded live from a running Herdr 0.8.0, not hand-written",
+    "why": "the original run provoked no workspace_metadata_updated and no workspace carrying tokens, and the crashed-service signal is built on both",
+    "what": [
+      "two workspace_metadata_updated events: one setting a token, one clearing it",
+      "snapshotWorkspaceWithTokens, a workspace as session.snapshot returns it once a token is set"
+    ]
+  },
+  "snapshotWorkspaceWithTokens": {
+    "workspace_id": "wJ",
+    "number": 2,
+    "label": "sd-snapshot-tokens",
+    "focused": false,
+    "pane_count": 1,
+    "tab_count": 1,
+    "active_tab_id": "wJ:t1",
+    "agent_status": "unknown",
+    "tokens": {
+      "sd_exit_dev": "1 wJ:p1"
+    }
+  },
+  "events": [
+    {
+      "at": 1786923611612,
+      "event": "workspace_created",
+      "data": {
+        "type": "workspace_created",
+        "workspace": {
+          "active_tab_id": "w6:t1",
+          "agent_status": "unknown",
+          "focused": false,
+          "label": "fixture probe",
+          "number": 2,
+          "pane_count": 1,
+          "tab_count": 1,
+          "workspace_id": "w6",
+          "worktree": {
+            "checkout_path": "/Users/zein/.herdr/worktrees/herdr-streamdeckplusxl/sd-fixture-probe",
+            "is_linked_worktree": true,
+            "repo_key": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl/.git",
+            "repo_name": "herdr-streamdeckplusxl",
+            "repo_root": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl"
+          }
+        }
+      }
+    },
+    {
+      "at": 1786923611613,
+      "event": "workspace_closed",
+      "data": {
+        "type": "workspace_closed",
+        "workspace": {
+          "active_tab_id": "w6:t1",
+          "agent_status": "unknown",
+          "focused": false,
+          "label": "fixture probe",
+          "number": 2,
+          "pane_count": 1,
+          "tab_count": 1,
+          "workspace_id": "w6",
+          "worktree": {
+            "checkout_path": "/Users/zein/.herdr/worktrees/herdr-streamdeckplusxl/sd-fixture-probe",
+            "is_linked_worktree": true,
+            "repo_key": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl/.git",
+            "repo_name": "herdr-streamdeckplusxl",
+            "repo_root": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl"
+          }
+        },
+        "workspace_id": "w6"
+      }
+    },
+    {
+      "at": 1786923611613,
+      "event": "workspace_focused",
+      "data": {
+        "type": "workspace_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923611613,
+      "event": "worktree_created",
+      "data": {
+        "type": "worktree_created",
+        "workspace": {
+          "active_tab_id": "w6:t1",
+          "agent_status": "unknown",
+          "focused": false,
+          "label": "fixture probe",
+          "number": 2,
+          "pane_count": 1,
+          "tab_count": 1,
+          "workspace_id": "w6",
+          "worktree": {
+            "checkout_path": "/Users/zein/.herdr/worktrees/herdr-streamdeckplusxl/sd-fixture-probe",
+            "is_linked_worktree": true,
+            "repo_key": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl/.git",
+            "repo_name": "herdr-streamdeckplusxl",
+            "repo_root": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl"
+          }
+        },
+        "worktree": {
+          "branch": "sd-fixture-probe",
+          "is_bare": false,
+          "is_detached": false,
+          "is_linked_worktree": true,
+          "is_prunable": false,
+          "label": "herdr-streamdeckplusxl",
+          "open_workspace_id": "w6",
+          "path": "/Users/zein/.herdr/worktrees/herdr-streamdeckplusxl/sd-fixture-probe"
+        }
+      }
+    },
+    {
+      "at": 1786923611613,
+      "event": "worktree_removed",
+      "data": {
+        "forced": false,
+        "type": "worktree_removed",
+        "workspace": {
+          "active_tab_id": "w6:t1",
+          "agent_status": "unknown",
+          "focused": false,
+          "label": "fixture probe",
+          "number": 2,
+          "pane_count": 1,
+          "tab_count": 1,
+          "workspace_id": "w6",
+          "worktree": {
+            "checkout_path": "/Users/zein/.herdr/worktrees/herdr-streamdeckplusxl/sd-fixture-probe",
+            "is_linked_worktree": true,
+            "repo_key": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl/.git",
+            "repo_name": "herdr-streamdeckplusxl",
+            "repo_root": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl"
+          }
+        },
+        "workspace_id": "w6",
+        "worktree": {
+          "branch": "sd-fixture-probe",
+          "is_bare": false,
+          "is_detached": false,
+          "is_linked_worktree": true,
+          "is_prunable": false,
+          "label": "herdr-streamdeckplusxl",
+          "path": "/Users/zein/.herdr/worktrees/herdr-streamdeckplusxl/sd-fixture-probe"
+        }
+      }
+    },
+    {
+      "at": 1786923611614,
+      "event": "tab_created",
+      "data": {
+        "tab": {
+          "agent_status": "unknown",
+          "focused": false,
+          "label": "6",
+          "number": 7,
+          "pane_count": 1,
+          "tab_id": "w4:t7",
+          "workspace_id": "w4"
+        },
+        "type": "tab_created"
+      }
+    },
+    {
+      "at": 1786923611614,
+      "event": "tab_closed",
+      "data": {
+        "tab_id": "w4:t7",
+        "type": "tab_closed",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923611614,
+      "event": "tab_focused",
+      "data": {
+        "tab_id": "w4:t7",
+        "type": "tab_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923611614,
+      "event": "tab_renamed",
+      "data": {
+        "label": "probe",
+        "tab_id": "w4:t7",
+        "type": "tab_renamed",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923611614,
+      "event": "pane_created",
+      "data": {
+        "pane": {
+          "agent_status": "unknown",
+          "cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "focused": false,
+          "foreground_cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "pane_id": "w4:p7",
+          "revision": 0,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w4:t7",
+          "terminal_id": "term_659328e531aa717",
+          "workspace_id": "w4"
+        },
+        "type": "pane_created"
+      }
+    },
+    {
+      "at": 1786923611615,
+      "event": "pane_updated",
+      "data": {
+        "pane": {
+          "agent": "claude",
+          "agent_status": "working",
+          "cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "focused": true,
+          "foreground_cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "pane_id": "w4:p1",
+          "revision": 3780,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w4:t1",
+          "terminal_id": "term_6592b149f5a3e10",
+          "terminal_title": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "workspace_id": "w4"
+        },
+        "type": "pane_updated"
+      }
+    },
+    {
+      "at": 1786923611615,
+      "event": "pane_focused",
+      "data": {
+        "pane_id": "w4:p7",
+        "type": "pane_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923611616,
+      "event": "layout_updated",
+      "data": {
+        "layout": {
+          "area": {
+            "height": 50,
+            "width": 139,
+            "x": 26,
+            "y": 1
+          },
+          "focused_pane_id": "w4:p7",
+          "panes": [
+            {
+              "focused": true,
+              "pane_id": "w4:p7",
+              "rect": {
+                "height": 50,
+                "width": 139,
+                "x": 26,
+                "y": 1
+              }
+            }
+          ],
+          "splits": [],
+          "tab_id": "w4:t7",
+          "workspace_id": "w4",
+          "zoomed": false
+        },
+        "type": "layout_updated"
+      }
+    },
+    {
+      "at": 1786923611721,
+      "event": "workspace_focused",
+      "data": {
+        "type": "workspace_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923611721,
+      "event": "tab_created",
+      "data": {
+        "tab": {
+          "agent_status": "unknown",
+          "focused": false,
+          "label": "1",
+          "number": 1,
+          "pane_count": 1,
+          "tab_id": "w6:t1",
+          "workspace_id": "w6"
+        },
+        "type": "tab_created"
+      }
+    },
+    {
+      "at": 1786923611721,
+      "event": "tab_focused",
+      "data": {
+        "tab_id": "w4:t6",
+        "type": "tab_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923611721,
+      "event": "pane_created",
+      "data": {
+        "pane": {
+          "agent_status": "unknown",
+          "cwd": "/Users/zein/.herdr/worktrees/herdr-streamdeckplusxl/sd-fixture-probe",
+          "focused": false,
+          "foreground_cwd": "/Users/zein/.herdr/worktrees/herdr-streamdeckplusxl/sd-fixture-probe",
+          "pane_id": "w6:p1",
+          "revision": 0,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w6:t1",
+          "terminal_id": "term_659328ea3389518",
+          "workspace_id": "w6"
+        },
+        "type": "pane_created"
+      }
+    },
+    {
+      "at": 1786923611722,
+      "event": "pane_updated",
+      "data": {
+        "pane": {
+          "agent": "claude",
+          "agent_status": "working",
+          "cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "focused": true,
+          "foreground_cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "pane_id": "w4:p1",
+          "revision": 3781,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w4:t1",
+          "terminal_id": "term_6592b149f5a3e10",
+          "terminal_title": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "workspace_id": "w4"
+        },
+        "type": "pane_updated"
+      }
+    },
+    {
+      "at": 1786923611722,
+      "event": "pane_focused",
+      "data": {
+        "pane_id": "w4:p6",
+        "type": "pane_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923611722,
+      "event": "layout_updated",
+      "data": {
+        "layout": {
+          "area": {
+            "height": 50,
+            "width": 139,
+            "x": 26,
+            "y": 1
+          },
+          "focused_pane_id": "w6:p1",
+          "panes": [
+            {
+              "focused": true,
+              "pane_id": "w6:p1",
+              "rect": {
+                "height": 50,
+                "width": 139,
+                "x": 26,
+                "y": 1
+              }
+            }
+          ],
+          "splits": [],
+          "tab_id": "w6:t1",
+          "workspace_id": "w6",
+          "zoomed": false
+        },
+        "type": "layout_updated"
+      }
+    },
+    {
+      "at": 1786923611827,
+      "event": "workspace_focused",
+      "data": {
+        "type": "workspace_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923611827,
+      "event": "tab_focused",
+      "data": {
+        "tab_id": "w4:t1",
+        "type": "tab_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923611828,
+      "event": "pane_updated",
+      "data": {
+        "pane": {
+          "agent": "claude",
+          "agent_status": "working",
+          "cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "focused": true,
+          "foreground_cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "pane_id": "w4:p1",
+          "revision": 3782,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w4:t1",
+          "terminal_id": "term_6592b149f5a3e10",
+          "terminal_title": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "workspace_id": "w4"
+        },
+        "type": "pane_updated"
+      }
+    },
+    {
+      "at": 1786923611828,
+      "event": "pane_focused",
+      "data": {
+        "pane_id": "w4:p1",
+        "type": "pane_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923611933,
+      "event": "workspace_focused",
+      "data": {
+        "type": "workspace_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923611934,
+      "event": "tab_focused",
+      "data": {
+        "tab_id": "w4:t3",
+        "type": "tab_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923611935,
+      "event": "pane_updated",
+      "data": {
+        "pane": {
+          "agent": "claude",
+          "agent_status": "working",
+          "cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "focused": true,
+          "foreground_cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "pane_id": "w4:p1",
+          "revision": 3783,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w4:t1",
+          "terminal_id": "term_6592b149f5a3e10",
+          "terminal_title": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "workspace_id": "w4"
+        },
+        "type": "pane_updated"
+      }
+    },
+    {
+      "at": 1786923611935,
+      "event": "pane_focused",
+      "data": {
+        "pane_id": "w4:p3",
+        "type": "pane_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923612038,
+      "event": "workspace_focused",
+      "data": {
+        "type": "workspace_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923612038,
+      "event": "tab_focused",
+      "data": {
+        "tab_id": "w4:t4",
+        "type": "tab_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923612038,
+      "event": "pane_updated",
+      "data": {
+        "pane": {
+          "agent": "claude",
+          "agent_status": "working",
+          "cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "focused": true,
+          "foreground_cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "pane_id": "w4:p1",
+          "revision": 3784,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w4:t1",
+          "terminal_id": "term_6592b149f5a3e10",
+          "terminal_title": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "workspace_id": "w4"
+        },
+        "type": "pane_updated"
+      }
+    },
+    {
+      "at": 1786923612038,
+      "event": "pane_focused",
+      "data": {
+        "pane_id": "w4:p4",
+        "type": "pane_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923612143,
+      "event": "workspace_focused",
+      "data": {
+        "type": "workspace_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923612143,
+      "event": "tab_focused",
+      "data": {
+        "tab_id": "w4:t5",
+        "type": "tab_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923612144,
+      "event": "pane_updated",
+      "data": {
+        "pane": {
+          "agent": "claude",
+          "agent_status": "working",
+          "cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "focused": true,
+          "foreground_cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "pane_id": "w4:p1",
+          "revision": 3785,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w4:t1",
+          "terminal_id": "term_6592b149f5a3e10",
+          "terminal_title": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "workspace_id": "w4"
+        },
+        "type": "pane_updated"
+      }
+    },
+    {
+      "at": 1786923612144,
+      "event": "pane_focused",
+      "data": {
+        "pane_id": "w4:p5",
+        "type": "pane_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923612247,
+      "event": "workspace_focused",
+      "data": {
+        "type": "workspace_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923612247,
+      "event": "tab_focused",
+      "data": {
+        "tab_id": "w4:t6",
+        "type": "tab_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923612248,
+      "event": "pane_updated",
+      "data": {
+        "pane": {
+          "agent": "claude",
+          "agent_status": "working",
+          "cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "focused": true,
+          "foreground_cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "pane_id": "w4:p1",
+          "revision": 3786,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w4:t1",
+          "terminal_id": "term_6592b149f5a3e10",
+          "terminal_title": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "workspace_id": "w4"
+        },
+        "type": "pane_updated"
+      }
+    },
+    {
+      "at": 1786923612248,
+      "event": "pane_focused",
+      "data": {
+        "pane_id": "w4:p6",
+        "type": "pane_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923612352,
+      "event": "workspace_focused",
+      "data": {
+        "type": "workspace_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923612352,
+      "event": "tab_focused",
+      "data": {
+        "tab_id": "w4:t1",
+        "type": "tab_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923612353,
+      "event": "pane_updated",
+      "data": {
+        "pane": {
+          "agent": "claude",
+          "agent_status": "working",
+          "cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "focused": true,
+          "foreground_cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "pane_id": "w4:p1",
+          "revision": 3787,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w4:t1",
+          "terminal_id": "term_6592b149f5a3e10",
+          "terminal_title": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "workspace_id": "w4"
+        },
+        "type": "pane_updated"
+      }
+    },
+    {
+      "at": 1786923612353,
+      "event": "pane_focused",
+      "data": {
+        "pane_id": "w4:p1",
+        "type": "pane_focused",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923612459,
+      "event": "pane_updated",
+      "data": {
+        "pane": {
+          "agent": "claude",
+          "agent_status": "working",
+          "cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "focused": true,
+          "foreground_cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "pane_id": "w4:p1",
+          "revision": 3788,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w4:t1",
+          "terminal_id": "term_6592b149f5a3e10",
+          "terminal_title": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "workspace_id": "w4"
+        },
+        "type": "pane_updated"
+      }
+    },
+    {
+      "at": 1786923612566,
+      "event": "pane_updated",
+      "data": {
+        "pane": {
+          "agent": "claude",
+          "agent_status": "working",
+          "cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "focused": true,
+          "foreground_cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "pane_id": "w4:p1",
+          "revision": 3789,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w4:t1",
+          "terminal_id": "term_6592b149f5a3e10",
+          "terminal_title": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "workspace_id": "w4"
+        },
+        "type": "pane_updated"
+      }
+    },
+    {
+      "at": 1786923612672,
+      "event": "pane_updated",
+      "data": {
+        "pane": {
+          "agent": "claude",
+          "agent_status": "working",
+          "cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "focused": true,
+          "foreground_cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "pane_id": "w4:p1",
+          "revision": 3790,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w4:t1",
+          "terminal_id": "term_6592b149f5a3e10",
+          "terminal_title": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d0 Plan plugin refactor with exploratory workflow",
+          "workspace_id": "w4"
+        },
+        "type": "pane_updated"
+      }
+    },
+    {
+      "at": 1786923612778,
+      "event": "pane_updated",
+      "data": {
+        "pane": {
+          "agent": "claude",
+          "agent_status": "working",
+          "cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "focused": true,
+          "foreground_cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "pane_id": "w4:p1",
+          "revision": 3791,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w4:t1",
+          "terminal_id": "term_6592b149f5a3e10",
+          "terminal_title": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "terminal_title_stripped": "\u25d1 Plan plugin refactor with exploratory workflow",
+          "workspace_id": "w4"
+        },
+        "type": "pane_updated"
+      }
+    },
+    {
+      "at": 1786923613517,
+      "event": "workspace_renamed",
+      "data": {
+        "label": "capture-probe",
+        "type": "workspace_renamed",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923614144,
+      "event": "workspace_renamed",
+      "data": {
+        "label": "herdr-streamdeckplusxl",
+        "type": "workspace_renamed",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923614771,
+      "event": "tab_created",
+      "data": {
+        "tab": {
+          "agent_status": "unknown",
+          "focused": false,
+          "label": "6",
+          "number": 8,
+          "pane_count": 1,
+          "tab_id": "w4:t8",
+          "workspace_id": "w4"
+        },
+        "type": "tab_created"
+      }
+    },
+    {
+      "at": 1786923614771,
+      "event": "pane_created",
+      "data": {
+        "pane": {
+          "agent_status": "unknown",
+          "cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "focused": false,
+          "foreground_cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "pane_id": "w4:p8",
+          "revision": 0,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w4:t8",
+          "terminal_id": "term_65932934bb1a719",
+          "workspace_id": "w4"
+        },
+        "type": "pane_created"
+      }
+    },
+    {
+      "at": 1786923614771,
+      "event": "layout_updated",
+      "data": {
+        "layout": {
+          "area": {
+            "height": 50,
+            "width": 139,
+            "x": 26,
+            "y": 1
+          },
+          "focused_pane_id": "w4:p8",
+          "panes": [
+            {
+              "focused": true,
+              "pane_id": "w4:p8",
+              "rect": {
+                "height": 50,
+                "width": 139,
+                "x": 26,
+                "y": 1
+              }
+            }
+          ],
+          "splits": [],
+          "tab_id": "w4:t8",
+          "workspace_id": "w4",
+          "zoomed": false
+        },
+        "type": "layout_updated"
+      }
+    },
+    {
+      "at": 1786923615613,
+      "event": "tab_renamed",
+      "data": {
+        "label": "probe",
+        "tab_id": "w4:t8",
+        "type": "tab_renamed",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923616140,
+      "event": "pane_created",
+      "data": {
+        "pane": {
+          "agent_status": "unknown",
+          "cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "focused": false,
+          "foreground_cwd": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl",
+          "pane_id": "w4:p9",
+          "revision": 0,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w4:t8",
+          "terminal_id": "term_65932936137221a",
+          "workspace_id": "w4"
+        },
+        "type": "pane_created"
+      }
+    },
+    {
+      "at": 1786923616141,
+      "event": "layout_updated",
+      "data": {
+        "layout": {
+          "area": {
+            "height": 50,
+            "width": 139,
+            "x": 26,
+            "y": 1
+          },
+          "focused_pane_id": "w4:p8",
+          "panes": [
+            {
+              "focused": true,
+              "pane_id": "w4:p8",
+              "rect": {
+                "height": 50,
+                "width": 70,
+                "x": 26,
+                "y": 1
+              }
+            },
+            {
+              "focused": false,
+              "pane_id": "w4:p9",
+              "rect": {
+                "height": 50,
+                "width": 69,
+                "x": 96,
+                "y": 1
+              }
+            }
+          ],
+          "splits": [
+            {
+              "direction": "right",
+              "id": "split_0_root",
+              "ratio": 0.5,
+              "rect": {
+                "height": 50,
+                "width": 139,
+                "x": 26,
+                "y": 1
+              }
+            }
+          ],
+          "tab_id": "w4:t8",
+          "workspace_id": "w4",
+          "zoomed": false
+        },
+        "type": "layout_updated"
+      }
+    },
+    {
+      "at": 1786923617290,
+      "event": "pane_exited",
+      "data": {
+        "pane_id": "w4:p9",
+        "type": "pane_exited",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923617290,
+      "event": "layout_updated",
+      "data": {
+        "layout": {
+          "area": {
+            "height": 50,
+            "width": 139,
+            "x": 26,
+            "y": 1
+          },
+          "focused_pane_id": "w4:p8",
+          "panes": [
+            {
+              "focused": true,
+              "pane_id": "w4:p8",
+              "rect": {
+                "height": 50,
+                "width": 139,
+                "x": 26,
+                "y": 1
+              }
+            }
+          ],
+          "splits": [],
+          "tab_id": "w4:t8",
+          "workspace_id": "w4",
+          "zoomed": false
+        },
+        "type": "layout_updated"
+      }
+    },
+    {
+      "at": 1786923622815,
+      "event": "tab_closed",
+      "data": {
+        "tab_id": "w4:t8",
+        "type": "tab_closed",
+        "workspace_id": "w4"
+      }
+    },
+    {
+      "at": 1786923624071,
+      "event": "workspace_created",
+      "data": {
+        "type": "workspace_created",
+        "workspace": {
+          "active_tab_id": "w7:t1",
+          "agent_status": "unknown",
+          "focused": false,
+          "label": "fixture probe",
+          "number": 2,
+          "pane_count": 1,
+          "tab_count": 1,
+          "workspace_id": "w7",
+          "worktree": {
+            "checkout_path": "/Users/zein/.herdr/worktrees/herdr-streamdeckplusxl/sd-fixture-probe",
+            "is_linked_worktree": true,
+            "repo_key": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl/.git",
+            "repo_name": "herdr-streamdeckplusxl",
+            "repo_root": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl"
+          }
+        }
+      }
+    },
+    {
+      "at": 1786923624071,
+      "event": "worktree_created",
+      "data": {
+        "type": "worktree_created",
+        "workspace": {
+          "active_tab_id": "w7:t1",
+          "agent_status": "unknown",
+          "focused": false,
+          "label": "fixture probe",
+          "number": 2,
+          "pane_count": 1,
+          "tab_count": 1,
+          "workspace_id": "w7",
+          "worktree": {
+            "checkout_path": "/Users/zein/.herdr/worktrees/herdr-streamdeckplusxl/sd-fixture-probe",
+            "is_linked_worktree": true,
+            "repo_key": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl/.git",
+            "repo_name": "herdr-streamdeckplusxl",
+            "repo_root": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl"
+          }
+        },
+        "worktree": {
+          "branch": "sd-fixture-probe",
+          "is_bare": false,
+          "is_detached": false,
+          "is_linked_worktree": true,
+          "is_prunable": false,
+          "label": "herdr-streamdeckplusxl",
+          "open_workspace_id": "w7",
+          "path": "/Users/zein/.herdr/worktrees/herdr-streamdeckplusxl/sd-fixture-probe"
+        }
+      }
+    },
+    {
+      "at": 1786923624071,
+      "event": "tab_created",
+      "data": {
+        "tab": {
+          "agent_status": "unknown",
+          "focused": false,
+          "label": "1",
+          "number": 1,
+          "pane_count": 1,
+          "tab_id": "w7:t1",
+          "workspace_id": "w7"
+        },
+        "type": "tab_created"
+      }
+    },
+    {
+      "at": 1786923624071,
+      "event": "pane_created",
+      "data": {
+        "pane": {
+          "agent_status": "unknown",
+          "cwd": "/Users/zein/.herdr/worktrees/herdr-streamdeckplusxl/sd-fixture-probe",
+          "focused": false,
+          "foreground_cwd": "/Users/zein/.herdr/worktrees/herdr-streamdeckplusxl/sd-fixture-probe",
+          "pane_id": "w7:p1",
+          "revision": 0,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 50
+          },
+          "tab_id": "w7:t1",
+          "terminal_id": "term_6593293d90d3a1b",
+          "workspace_id": "w7"
+        },
+        "type": "pane_created"
+      }
+    },
+    {
+      "at": 1786923624071,
+      "event": "layout_updated",
+      "data": {
+        "layout": {
+          "area": {
+            "height": 50,
+            "width": 139,
+            "x": 26,
+            "y": 1
+          },
+          "focused_pane_id": "w7:p1",
+          "panes": [
+            {
+              "focused": true,
+              "pane_id": "w7:p1",
+              "rect": {
+                "height": 50,
+                "width": 139,
+                "x": 26,
+                "y": 1
+              }
+            }
+          ],
+          "splits": [],
+          "tab_id": "w7:t1",
+          "workspace_id": "w7",
+          "zoomed": false
+        },
+        "type": "layout_updated"
+      }
+    },
+    {
+      "at": 1786923626582,
+      "event": "worktree_removed",
+      "data": {
+        "forced": true,
+        "type": "worktree_removed",
+        "workspace": {
+          "active_tab_id": "w7:t1",
+          "agent_status": "unknown",
+          "focused": false,
+          "label": "fixture probe",
+          "number": 2,
+          "pane_count": 1,
+          "tab_count": 1,
+          "workspace_id": "w7",
+          "worktree": {
+            "checkout_path": "/Users/zein/.herdr/worktrees/herdr-streamdeckplusxl/sd-fixture-probe",
+            "is_linked_worktree": true,
+            "repo_key": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl/.git",
+            "repo_name": "herdr-streamdeckplusxl",
+            "repo_root": "/Users/zein/Threads/fork-StreamDeckPlusXL/herdr-streamdeckplusxl"
+          }
+        },
+        "workspace_id": "w7",
+        "worktree": {
+          "branch": "sd-fixture-probe",
+          "is_bare": false,
+          "is_detached": false,
+          "is_linked_worktree": true,
+          "is_prunable": false,
+          "label": "herdr-streamdeckplusxl",
+          "path": "/Users/zein/.herdr/worktrees/herdr-streamdeckplusxl/sd-fixture-probe"
+        }
+      }
+    },
+    {
+      "at": 1786923626582,
+      "event": "pane_exited",
+      "data": {
+        "pane_id": "w7:p1",
+        "type": "pane_exited",
+        "workspace_id": "w7"
+      }
+    },
+    {
+      "at": 1786976188159,
+      "event": "workspace_metadata_updated",
+      "data": {
+        "type": "workspace_metadata_updated",
+        "workspace": {
+          "active_tab_id": "wB:t1",
+          "agent_status": "unknown",
+          "focused": false,
+          "label": "sd-fixture-tokens",
+          "number": 2,
+          "pane_count": 1,
+          "tab_count": 1,
+          "tokens": {
+            "sd_exit_dev": "1"
+          },
+          "workspace_id": "wB"
+        }
+      }
+    },
+    {
+      "at": 1786976189527,
+      "event": "workspace_metadata_updated",
+      "data": {
+        "type": "workspace_metadata_updated",
+        "workspace": {
+          "active_tab_id": "wB:t1",
+          "agent_status": "unknown",
+          "focused": false,
+          "label": "sd-fixture-tokens",
+          "number": 2,
+          "pane_count": 1,
+          "tab_count": 1,
+          "workspace_id": "wB"
+        }
+      }
+    }
+  ]
+}

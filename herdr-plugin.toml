@@ -1,8 +1,8 @@
 id = "dev.herdr.streamdeck"
-name = "Herdr Stream Deck+"
+name = "Herdr Stream Deck"
 version = "0.1.0"
 min_herdr_version = "0.8.0"
-description = "Physical triage and control for Herdr on Stream Deck+."
+description = "A control surface for running several development workstreams in parallel."
 platforms = ["linux", "macos", "windows"]
 
 [[build]]
@@ -13,16 +13,32 @@ platforms = ["windows"]
 command = ["sh", "scripts/install-streamdeck.sh"]
 platforms = ["linux", "macos"]
 
-[[actions]]
-id = "pin-focused-pane"
-title = "Pin focused pane to Stream Deck"
-contexts = ["pane"]
-command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "herdr-plugin/pin-focused.ps1"]
-platforms = ["windows"]
+# Herdr-side enrichment (ADR-0004, ADR-0006): derives a workstream's ticket
+# list from Git and publishes it as the workspace token `sd_tickets`. Runs in
+# the Herdr plugin process, independently of the Stream Deck app.
+[[startup]]
+command = ["node", "scripts/herdr-tickets.mjs", "startup"]
 
-[[actions]]
-id = "pin-focused-pane-unix"
-title = "Pin focused pane to Stream Deck"
-contexts = ["pane"]
-command = ["sh", "herdr-plugin/pin-focused.sh"]
-platforms = ["linux", "macos"]
+[[events]]
+on = "worktree.created"
+command = ["node", "scripts/herdr-tickets.mjs", "worktree-created"]
+
+[[events]]
+on = "worktree.opened"
+command = ["node", "scripts/herdr-tickets.mjs", "worktree-opened"]
+
+# Herdr-side enrichment (ADR-0004, ticket -7bl): works out a workstream's
+# GitHub pull-request state and publishes it as the workspace token `sd_pr`.
+# Each of these also makes sure a background poll loop is running for that
+# workspace, since nothing local ever fires when a review or check changes
+# on GitHub's side — see the header of scripts/herdr-pr.mjs for why.
+[[startup]]
+command = ["node", "scripts/herdr-pr.mjs", "startup"]
+
+[[events]]
+on = "worktree.created"
+command = ["node", "scripts/herdr-pr.mjs", "worktree-created"]
+
+[[events]]
+on = "worktree.opened"
+command = ["node", "scripts/herdr-pr.mjs", "worktree-opened"]

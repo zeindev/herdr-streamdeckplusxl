@@ -3,14 +3,14 @@ import test from "node:test";
 
 import { workstreamsOf } from "../../.preview/device/workstream.js";
 import {
-  BRANCH_COLUMNS,
-  FIELD_COLUMNS,
-  OVERFLOW_COLUMNS,
+  BRANCH_CELLS,
+  OVERFLOW_CELLS,
+  READING_CELLS,
   UNKNOWN,
-  fieldWidth,
+  readingWidth,
   stripBlockOf
 } from "../../.preview/device/strip.js";
-import { displayWidth } from "../../.preview/text.js";
+import { READING_GAP, displayWidth } from "../../.preview/text.js";
 import { recordedWorkspace } from "../herdr/fixtures/recorded.mjs";
 
 function workstreamOn(label, { branch, worktree = true } = {}) {
@@ -34,15 +34,16 @@ const agentPane = (status, overrides = {}) => ({
   ...overrides
 });
 
-const valueOf = (block, label) => block.fields.find((field) => field.label === label)?.value;
+const valueOf = (block, label) => block.readings.find((reading) => reading.label === label)?.value;
+const labelsOf = (block) => block.readings.map((reading) => reading.label);
 
-/** How wide a rendered field line is, gaps included. */
-function lineWidth(fields) {
-  return fields.reduce((width, field, index) => width + fieldWidth(field) + (index === 0 ? 0 : 2), 0);
+/** How wide a rendered readings line is, gaps included. */
+function lineWidth(readings) {
+  return readings.reduce((width, reading, index) => width + readingWidth(reading) + (index === 0 ? 0 : READING_GAP), 0);
 }
 
 test("a channel with no workstream lights nothing at all", () => {
-  assert.deepEqual(stripBlockOf(null, []), { branch: null, fields: [] });
+  assert.deepEqual(stripBlockOf(null, []), { branch: null, readings: [], notice: null });
 });
 
 test("the branch is what the strip leads with", () => {
@@ -50,20 +51,28 @@ test("the branch is what the strip leads with", () => {
   assert.equal(block.branch, "feat/auth-rewrite");
 });
 
-test("a long branch loses its start, never the part that distinguishes it", () => {
-  // Two branches under one prefix must not both read as the same thing, which is
-  // exactly what cutting the end would do.
+test("a long branch loses its middle, so both ends still identify it", () => {
   const long = "feature/authentication/rewrite-the-token-store";
   const block = stripBlockOf(workstreamOn("auth", { branch: long }), []);
 
-  assert.ok(displayWidth(block.branch) <= BRANCH_COLUMNS, "it fits");
-  assert.ok(block.branch.startsWith("…"), "something was cut, and the strip says so");
-  assert.ok(long.endsWith(block.branch.slice(1)), "what is left is the end of the branch");
+  assert.ok(displayWidth(block.branch) <= BRANCH_CELLS, "it fits");
+  const [head, tail] = block.branch.split("…");
+  assert.ok(head.length > 0 && tail.length > 0, "something was cut, and both ends survived");
+  assert.ok(long.startsWith(head) && long.endsWith(tail));
 });
 
-test("two branches sharing a long prefix still read differently", () => {
+test("branches that differ only at the end still read differently", () => {
   const one = stripBlockOf(workstreamOn("a", { branch: "feature/authentication/rewrite-token-store" }), []).branch;
   const two = stripBlockOf(workstreamOn("a", { branch: "feature/authentication/revert-token-store" }), []).branch;
+  assert.notEqual(one, two);
+});
+
+test("branches that differ only at the start still read differently", () => {
+  // Cutting the head instead of the middle would have merged these two, which is
+  // the same ambiguity in a mirror.
+  const long = (owner) => `${owner}/a-really-quite-long-branch-name-here`;
+  const one = stripBlockOf(workstreamOn("a", { branch: long("alice") }), []).branch;
+  const two = stripBlockOf(workstreamOn("a", { branch: long("bob") }), []).branch;
   assert.notEqual(one, two);
 });
 
@@ -106,28 +115,65 @@ test("space for ticket and pull-request state is reserved and reads as unknown",
 });
 
 test("readings sit in a fixed order, so one is always found in the same place", () => {
-  const order = (panes) => stripBlockOf(workstreamOn("auth", { branch: "main" }), panes).fields.map((field) => field.label);
+  const order = (panes) => labelsOf(stripBlockOf(workstreamOn("auth", { branch: "main" }), panes));
   assert.deepEqual(order([]), ["ATTN", "TKT", "PR", "AGENTS"]);
   assert.deepEqual(order([agentPane("blocked")]), ["ATTN", "TKT", "PR", "AGENTS"]);
+});
+
+test("enrichment arriving changes what a reading says, not where anything sits", () => {
+  // The reserved widths are the whole point: -wl7 filling TKT and PR in must not
+  // shove AGENTS off the strip, or the layout would move under the developer.
+  const block = stripBlockOf(workstreamOn("auth", { branch: "main" }), []);
+  const widest = block.readings.map((reading) =>
+    reading.label === "PR" ? { ...reading, value: "OPEN" } : reading
+  );
+  assert.deepEqual(labelsOf(block), ["ATTN", "TKT", "PR", "AGENTS"]);
+  assert.ok(lineWidth(widest) <= READING_CELLS, "the widest values the reservation covers still fit");
+});
+
+test("a notice replaces the readings but never the branch", () => {
+  // A branch does not change because Herdr died; the counts do, so they go.
+  const block = stripBlockOf(workstreamOn("auth", { branch: "main" }), [agentPane("blocked")], { notice: "OFFLINE" });
+  assert.equal(block.branch, "main");
+  assert.deepEqual(block.readings, []);
+  assert.equal(block.notice, "OFFLINE");
 });
 
 test("what fits, fits: the field line never exceeds its budget", () => {
   const many = Array.from({ length: 99 }, (_, index) => agentPane("blocked", { pane_id: `p${index}` }));
   const block = stripBlockOf(workstreamOn("auth", { branch: "main" }), many);
-  assert.ok(lineWidth(block.fields) <= FIELD_COLUMNS);
+  assert.ok(lineWidth(block.readings) <= READING_CELLS);
 });
 
 test("content is dropped rather than shrunk, and the reasons the strip exists survive", () => {
-  const reserved = stripBlockOf(workstreamOn("auth", { branch: "main" }), [], OVERFLOW_COLUMNS);
+  const reserved = stripBlockOf(workstreamOn("auth", { branch: "main" }), [], { reserved: OVERFLOW_CELLS });
   const roomy = stripBlockOf(workstreamOn("auth", { branch: "main" }), []);
 
-  assert.ok(reserved.fields.length < roomy.fields.length, "something gave way");
-  assert.ok(lineWidth(reserved.fields) <= FIELD_COLUMNS - OVERFLOW_COLUMNS);
+  assert.ok(reserved.readings.length < roomy.readings.length, "something gave way");
+  assert.ok(lineWidth(reserved.readings) <= READING_CELLS - OVERFLOW_CELLS);
   assert.deepEqual(
-    reserved.fields.map((field) => field.label),
+    reserved.readings.map((field) => field.label),
     ["ATTN", "TKT", "PR"],
     "attention and the reserved enrichment are never the ones dropped"
   );
+});
+
+test("the readings the strip exists for are kept whatever the budget", () => {
+  // The reserved enrichment is only reserved if it cannot be squeezed out, and
+  // a strip that silently stopped reporting attention would be worse than one
+  // that runs long. Budgets far tighter than anything the device produces.
+  const workstream = workstreamOn("auth", { branch: "main" });
+  for (const attention of [0, 9, 999]) {
+    const panes = Array.from({ length: attention }, (_, index) => agentPane("blocked", { pane_id: `p${index}` }));
+    for (const reserved of [0, OVERFLOW_CELLS, 15, 25, READING_CELLS - 1]) {
+      const labels = stripBlockOf(workstream, panes, { reserved }).readings.map((reading) => reading.label);
+      assert.deepEqual(
+        labels.filter((label) => ["ATTN", "TKT", "PR"].includes(label)),
+        ["ATTN", "TKT", "PR"],
+        `attention ${attention} with ${reserved} cells reserved dropped a reading it may not drop`
+      );
+    }
+  }
 });
 
 test("a workstream keeps its readings even when the branch had to be cut", () => {
@@ -135,6 +181,6 @@ test("a workstream keeps its readings even when the branch had to be cut", () =>
     workstreamOn("auth", { branch: "feature/authentication/rewrite-the-entire-token-store-again" }),
     [agentPane("blocked")]
   );
-  assert.ok(displayWidth(block.branch) <= BRANCH_COLUMNS);
+  assert.ok(displayWidth(block.branch) <= BRANCH_CELLS);
   assert.equal(valueOf(block, "ATTN"), "1");
 });

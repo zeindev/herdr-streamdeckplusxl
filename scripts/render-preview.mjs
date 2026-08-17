@@ -59,23 +59,23 @@ function live(workspaces, panes, branches) {
   ]);
 }
 
+const liveScene = live(
+  [
+    workspace(1, "auth rewrite", "/w/auth-rewrite"),
+    workspace(2, "billing api", "/w/billing-api"),
+    workspace(3, "search perf", "/w/search-perf")
+  ],
+  [agentPane("w1", 1, "blocked"), agentPane("w2", 1, "working"), agentPane("w3", 1, "done")],
+  { "/w/auth-rewrite": "feat/auth-rewrite", "/w/billing-api": "feat/billing-api", "/w/search-perf": "perf/search" }
+);
+
 const scenes = {
   offline: apply([attach]),
   syncing: apply([attach, { kind: "herdr-connection", connected: true }]),
+  // Herdr lost after it had been live: the branches stay, the counts do not.
+  disconnected: apply([{ kind: "herdr-connection", connected: false }], liveScene),
   // Three workstreams, one per channel, each in a different state.
-  live: live(
-    [
-      workspace(1, "auth rewrite", "/w/auth-rewrite"),
-      workspace(2, "billing api", "/w/billing-api"),
-      workspace(3, "search perf", "/w/search-perf")
-    ],
-    [
-      agentPane("w1", 1, "blocked"),
-      agentPane("w2", 1, "working"),
-      agentPane("w3", 1, "done")
-    ],
-    { "/w/auth-rewrite": "feat/auth-rewrite", "/w/billing-api": "feat/billing-api", "/w/search-perf": "perf/search" }
-  ),
+  live: liveScene,
   // The awkward cases: one channel unassigned and offering a worktree, one
   // workspace with no worktree, and a workstream whose panes run no agent.
   partial: live(
@@ -104,7 +104,7 @@ const scenes = {
 mkdirSync("artifacts", { recursive: true });
 for (const [name, state] of Object.entries(scenes)) {
   for (const [appearance, theme] of [["dark", dark], ["light", light]]) {
-    if (!["live", "partial", "overflow"].includes(name) && appearance === "light") continue;
+    if (!["live", "partial", "overflow", "disconnected"].includes(name) && appearance === "light") continue;
     writeFileSync(`artifacts/xl-${name}-${appearance}.svg`, devicePreview(state, theme));
   }
 }

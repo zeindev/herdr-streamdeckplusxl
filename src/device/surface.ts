@@ -10,7 +10,7 @@ import {
 } from "./geometry.js";
 import { channelWorkstreams, overflowOf } from "./slots.js";
 import type { State } from "./state.js";
-import { OVERFLOW_COLUMNS, stripBlockOf, type StripBlock } from "./strip.js";
+import { OVERFLOW_CELLS, stripBlockOf, type StripBlock } from "./strip.js";
 import { workstreamsOf, type Workstream } from "./workstream.js";
 
 /**
@@ -44,14 +44,6 @@ export type EncoderFace = {
    * every region but the last, so a change to it redraws one control and not six.
    */
   overflow: number;
-  /**
-   * A message that replaces the whole strip, or null when there is none.
-   *
-   * Used when Herdr cannot be trusted: every branch and every count would be
-   * whatever was last true rather than what is true, so the strip says why it is
-   * dark instead of showing a confident lie.
-   */
-  notice: string | null;
 };
 
 export type DeviceSurface = {
@@ -64,7 +56,7 @@ export type DeviceSurface = {
 export type Surface = { devices: DeviceSurface[] };
 
 const BLANK: KeyFace = { kind: "blank" };
-const EMPTY_BLOCK: StripBlock = { branch: null, fields: [] };
+const EMPTY_BLOCK: StripBlock = { branch: null, readings: [], notice: null };
 
 /**
  * Projects state onto every attached device.
@@ -158,29 +150,34 @@ function encodersOf(
 ): EncoderFace[] {
   const last = layout.encoders - 1;
   const lastChannel = Math.floor(last / layout.encodersPerChannel);
-  const blocks = notice
-    ? workstreams.map(() => EMPTY_BLOCK)
-    : workstreams.map((workstream, channel) =>
-        stripBlockOf(workstream, panes, overflow > 0 && channel === lastChannel ? OVERFLOW_COLUMNS : 0)
-      );
+  const blocks = workstreams.map((workstream, channel) =>
+    stripBlockOf(workstream, panes, {
+      reserved: !notice && overflow > 0 && channel === lastChannel ? OVERFLOW_CELLS : 0,
+      notice
+    })
+  );
 
   return Array.from({ length: layout.encoders }, (_, region) => ({
     block: blocks[Math.floor(region / layout.encodersPerChannel)] ?? EMPTY_BLOCK,
-    overflow: notice || region !== last ? 0 : overflow,
-    notice
+    overflow: notice || region !== last ? 0 : overflow
   }));
 }
 
 /**
- * Why the strip is dark, when it is.
+ * Why a channel's readings are missing, when they are.
  *
- * Herdr being unreachable is not a state any single channel can express, and
- * leaving the last known branches lit would be a confident lie about a session
- * that may no longer exist at all.
+ * Herdr being unreachable makes every count whatever was last true rather than
+ * what is true, so the counts go. The branch stays: a branch does not change
+ * because Herdr died, and a channel with no identity at all would be worse than
+ * one whose numbers are admittedly stale.
+ *
+ * Each channel carries the notice rather than the strip carrying one centrally,
+ * because a region only ever draws its own block — a single message would be
+ * visible on one region out of six.
  */
 function noticeFor(state: State): string | null {
   if (state.sync === "live") return null;
-  return state.sync === "syncing" ? "SYNCING" : "HERDR OFFLINE";
+  return state.sync === "syncing" ? "SYNCING" : "OFFLINE";
 }
 
 export type ControlKind = "key" | "encoder";

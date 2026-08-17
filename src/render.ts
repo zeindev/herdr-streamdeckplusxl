@@ -1,5 +1,5 @@
 import { MOTION_BASE_WIDTH, type AgentStatus, type PaneSnapshot, type ResolvedThemeSnapshot, type WorkingMotion } from "./model.js";
-import { displayWidth, graphemes, splitAtWidth, truncate } from "./text.js";
+import { READING_GAP, displayWidth, graphemes, splitAtWidth, truncate } from "./text.js";
 
 const monoFont = `font-family="Consolas" font-weight="700"`;
 
@@ -37,19 +37,19 @@ type KeyView = {
  * fits; the renderer only places it.
  */
 export type StripView = {
-  /** Null when the channel holds no workstream, and nothing is lit. */
-  branch: string | null;
-  fields: ReadonlyArray<{ label: string; value: string }>;
+  block: {
+    /** Null when the channel holds no workstream, and nothing is lit. */
+    branch: string | null;
+    readings: ReadonlyArray<{ label: string; value: string }>;
+    /** Shown instead of the readings when they cannot be trusted. */
+    notice: string | null;
+  };
   /** Drawn at the far right of the whole strip, when there is any. */
   overflow: number;
-  /** Replaces the whole strip when Herdr cannot be trusted. */
-  notice: string | null;
 };
 
 const BRANCH_SIZE = 28;
 const FIELD_SIZE = 20;
-/** Two cells between fields, matching the gap the projection budgets for. */
-const FIELD_GAP_CELLS = 2;
 
 export function keySvg(view: KeyView, theme?: ResolvedThemeSnapshot | null): string {
   if (view.blank) return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>`;
@@ -126,19 +126,17 @@ export function stripRegionSvg(
   const blockX = Math.floor(region / regionsPerChannel) * regionsPerChannel * 200;
   const left = blockX + 18;
 
-  if (view.notice) {
-    // One message for the whole strip, drawn where the first region can see it.
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="${region * 200} 0 200 100">
-    <rect width="${width}" height="100" fill="#000000"/>
-    <text x="18" y="62" ${monoFont} font-size="${BRANCH_SIZE}" fill="${subtext}">${escapeXml(view.notice)}</text>
-  </svg>`;
-  }
-
-  const block = view.branch === null ? "" : [
-    `<rect x="${blockX}" y="0" width="5" height="100" fill="${accent}"/>`,
-    `<text x="${left}" y="44" ${monoFont} font-size="${BRANCH_SIZE}" fill="${text}">${escapeXml(view.branch)}</text>`,
-    fieldsSvg(view.fields, left, text, subtext)
-  ].join("");
+  const { branch, readings, notice } = view.block;
+  const identity = branch === null ? "" :
+    `<rect x="${blockX}" y="0" width="5" height="100" fill="${accent}"/>` +
+    `<text x="${left}" y="44" ${monoFont} font-size="${BRANCH_SIZE}" fill="${text}">${escapeXml(branch)}</text>`;
+  // A notice takes the readings' line, so a branch above it still reads — and it
+  // is drawn whether or not there is one, since a channel holding no workstream
+  // still has to say why the strip is dark.
+  const below = notice
+    ? `<text x="${left}" y="80" ${monoFont} font-size="${FIELD_SIZE}" fill="${subtext}">${escapeXml(notice)}</text>`
+    : readingsSvg(readings, left, text, subtext);
+  const block = identity + (branch === null && !notice ? "" : below);
 
   // The overflow count sits at the far right of the whole strip (ADR-0011), and
   // the channel sharing that region has already given up the space for it.
@@ -160,14 +158,14 @@ export function stripRegionSvg(
  * every advance is wider than assumed. Nothing here measures anything — how much
  * fits was decided by the projection, in cells.
  */
-function fieldsSvg(fields: StripView["fields"], left: number, text: string, subtext: string): string {
-  if (fields.length === 0) return "";
-  const runs = fields
+function readingsSvg(readings: StripView["block"]["readings"], left: number, text: string, subtext: string): string {
+  if (readings.length === 0) return "";
+  const runs = readings
     .map(
-      (field, index) =>
-        `${index === 0 ? "" : `<tspan fill="${subtext}">${" ".repeat(FIELD_GAP_CELLS)}</tspan>`}` +
-        `<tspan fill="${subtext}">${escapeXml(field.label)} </tspan>` +
-        `<tspan fill="${text}">${escapeXml(field.value)}</tspan>`
+      (reading, index) =>
+        `${index === 0 ? "" : `<tspan fill="${subtext}">${" ".repeat(READING_GAP)}</tspan>`}` +
+        `<tspan fill="${subtext}">${escapeXml(reading.label)} </tspan>` +
+        `<tspan fill="${text}">${escapeXml(reading.value)}</tspan>`
     )
     .join("");
   return `<text x="${left}" y="80" ${monoFont} font-size="${FIELD_SIZE}" xml:space="preserve">${runs}</text>`;
@@ -316,7 +314,6 @@ function splitLabelLine(value: string, width: number): [string, string] {
   return [hardLine, rest.join("").trim()];
 }
 
-
 function compactContext(value: string, width: number): string {
   if (displayWidth(value) <= width) return value;
   const separator = [" · ", " › "].find((candidate) => value.includes(candidate));
@@ -328,10 +325,6 @@ function compactContext(value: string, width: number): string {
   if (suffixWidth > width - 2) return truncate(value.slice(split + separator.length), width);
   return `${truncate(value.slice(0, split), width - suffixWidth)}${suffix}`;
 }
-
-
-
-
 
 function escapeXml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[character]!);

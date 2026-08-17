@@ -165,18 +165,42 @@ test("everything below the header row is still blank, awaiting panes and control
   }
 });
 
-test("the strip says why it is dark rather than showing a branch it cannot vouch for", () => {
+test("a channel keeps its branch when Herdr goes away, and drops the counts", () => {
+  // The branch does not change because Herdr died, but every count would be
+  // whatever was last true rather than what is true.
+  const live = liveState({
+    workspaces: [workspaceOn(1, "auth")],
+    worktrees: [{ path: "/w/auth", branch: "feat/auth" }]
+  });
+  const lost = run([{ kind: "herdr-connection", connected: false }], live);
+  const device = surfaceOf(lost).devices[0];
+
+  assert.equal(device.encoders[0].block.branch, "feat/auth", "identity survives");
+  assert.deepEqual(device.encoders[0].block.readings, [], "the counts do not");
+  assert.equal(device.encoders[0].block.notice, "OFFLINE");
+});
+
+test("every channel says why its counts are missing, since a region only draws its own", () => {
   const offline = surfaceOf(run([attachXl])).devices[0];
-  assert.equal(offline.encoders[0].notice, "HERDR OFFLINE");
-  assert.ok(offline.encoders.every((face) => face.block.branch === null && face.block.fields.length === 0));
+  assert.ok(offline.encoders.every((face) => face.block.notice === "OFFLINE"));
 
   const syncing = surfaceOf(run([attachXl, { kind: "herdr-connection", connected: true }])).devices[0];
-  assert.equal(syncing.encoders[0].notice, "SYNCING");
+  assert.ok(syncing.encoders.every((face) => face.block.notice === "SYNCING"));
+});
+
+test("a channel with no workstream still says why the strip is dark", () => {
+  // Cold start: nothing is assigned and Herdr has not answered. A blank strip
+  // would leave the developer with no reason for it.
+  const device = surfaceOf(run([attachXl])).devices[0];
+  const face = device.encoders[0];
+
+  assert.equal(face.block.branch, null);
+  assert.equal(face.block.notice, "OFFLINE");
 });
 
 test("the strip carries no notice once Herdr is live", () => {
   const device = surfaceOf(liveState({ workspaces: [workspaceOn(1, "auth")] })).devices[0];
-  assert.ok(device.encoders.every((face) => face.notice === null));
+  assert.ok(device.encoders.every((face) => face.block.notice === null));
 });
 
 test("both regions of a channel carry the same block, because they are one composition", () => {
@@ -197,7 +221,7 @@ test("both regions of a channel carry the same block, because they are one compo
 
 test("every strip reading is named, so no number on the strip is bare", () => {
   const device = surfaceOf(liveState({ workspaces: [workspaceOn(1, "auth")] })).devices[0];
-  const fields = device.encoders[0].block.fields;
+  const fields = device.encoders[0].block.readings;
 
   assert.ok(fields.length > 0);
   assert.ok(fields.every((field) => field.label.length > 0 && field.value.length > 0));
@@ -205,7 +229,7 @@ test("every strip reading is named, so no number on the strip is bare", () => {
 
 test("space for ticket and pull-request state is reserved and reads as unknown", () => {
   const device = surfaceOf(liveState({ workspaces: [workspaceOn(1, "auth")] })).devices[0];
-  const fields = device.encoders[0].block.fields;
+  const fields = device.encoders[0].block.readings;
 
   assert.deepEqual(fields.find((field) => field.label === "TKT"), { label: "TKT", value: "?" });
   assert.deepEqual(fields.find((field) => field.label === "PR"), { label: "PR", value: "?" });
@@ -225,12 +249,12 @@ test("the channel sharing the overflow region gives up room rather than overlapp
   const crowded = surfaceOf(liveState({ workspaces: [...three, workspaceOn(4, "stream 4")] })).devices[0];
 
   assert.ok(
-    crowded.encoders[4].block.fields.length < roomy.encoders[4].block.fields.length,
+    crowded.encoders[4].block.readings.length < roomy.encoders[4].block.readings.length,
     "the last channel drops a reading to make room for the count"
   );
   assert.deepEqual(
-    crowded.encoders[0].block.fields.length,
-    roomy.encoders[0].block.fields.length,
+    crowded.encoders[0].block.readings.length,
+    roomy.encoders[0].block.readings.length,
     "the other channels are untouched"
   );
 });

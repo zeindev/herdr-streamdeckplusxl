@@ -9,6 +9,15 @@
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
+/**
+ * Cells between two readings on the strip.
+ *
+ * Here rather than in either of them because the projection budgets for this gap
+ * and the renderer draws it, and if the two disagreed the projection would say
+ * something fits that the renderer then overruns.
+ */
+export const READING_GAP = 2;
+
 export function graphemes(value: string): string[] {
   return Array.from(graphemeSegmenter.segment(value), ({ segment }) => segment);
 }
@@ -34,28 +43,42 @@ export function truncate(value: string, width: number): string {
 }
 
 /**
- * Cuts the *start* off instead, keeping the end.
+ * Cuts the *middle* out, keeping both ends.
  *
- * Used where the tail is what distinguishes one value from another — branch
- * names being the case that matters here, since `feature/auth/rewrite` and
- * `feature/auth/revert` differ only at the end.
+ * Neither end alone is safe to lose. Branch names are the case that matters:
+ * `feature/auth/rewrite` and `feature/auth/revert` differ only at the end, so
+ * cutting the tail would merge them — but `alice/fix-login` and `bob/fix-login`
+ * differ only at the start, so cutting the head merges those instead. Keeping
+ * both ends is the only cut that survives either.
+ *
+ * The tail gets the larger share, because that is where a branch name usually
+ * carries what the work actually is.
  */
-export function truncateStart(value: string, width: number): string {
+export function truncateMiddle(value: string, width: number): string {
   if (displayWidth(value) <= width) return value;
+  if (width <= 1) return "…";
+  const forEnds = width - 1;
+  const headWidth = Math.floor(forEnds / 3);
+  const [head] = splitAtWidth(value, headWidth);
+  return `${head}…${keepEnd(value, forEnds - displayWidth(head))}`;
+}
+
+/** The last `width` cells of a value. */
+function keepEnd(value: string, width: number): string {
   const characters = graphemes(value);
   let kept = "";
-  let used = 1; // The ellipsis costs a cell of its own.
+  let used = 0;
   for (let index = characters.length - 1; index >= 0; index--) {
     const next = used + graphemeWidth(characters[index]);
     if (next > width) break;
     used = next;
     kept = characters[index] + kept;
   }
-  return `…${kept}`;
+  return kept;
 }
 
 // ponytail: Device labels use terminal-style cell widths; measure the shipped font only if physical overflow proves this estimate insufficient.
-export function graphemeWidth(value: string): number {
+function graphemeWidth(value: string): number {
   return WIDE.test(value) ? 2 : 1;
 }
 

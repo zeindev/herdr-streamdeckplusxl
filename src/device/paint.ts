@@ -42,5 +42,5 @@ export function encoderImage(
   layout: DeviceLayout,
   theme: ResolvedThemeSnapshot | null
 ): string {
-  return stripRegionSvg(index, layout.encoders, layout.encodersPerChannel, { ...face.block, overflow: face.overflow, notice: face.notice }, theme);
+  return stripRegionSvg(index, layout.encoders, layout.encodersPerChannel, face, theme);
 }

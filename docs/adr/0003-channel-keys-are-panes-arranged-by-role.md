@@ -25,7 +25,14 @@ A pane's role is auto-suggested from `pane.process_info`, which returns each for
 
 ## What building it corrected (ticket `-4bb`)
 
-The staged deviation recorded here is over: the header row is gone and all three role rows are panes. Workstream identity lives on the strip, as this decision always intended, and the slot-reassignment hold moved with it — the touch strip reports `hold` and `tapPos` itself, so that gesture needs no timer of its own.
+The staged deviation recorded here is over: the header row is gone and all three role rows are panes. The slot-reassignment hold moved to the strip with it, which is a better home than the key it came from — the touch strip reports `hold` and `tapPos` itself, so that gesture needs no timer.
+
+**What the header carried did not all find a new home, and this is a regression to be honest about.** The staged section this replaces named the precondition: "somewhere else has to carry a workstream's label and state". Only part of that was met.
+
+- The **aggregate agent state** is genuinely redundant now and was deleted rather than moved. Every agent in a channel has a key of its own showing its own status, so a summary of them adds nothing a glance does not already give.
+- The **branch** identifies a channel, from the strip, which is what this decision always wanted.
+- A workstream with **no worktree** has no branch, so the strip shows its **label** instead. Without that it would have had no identity anywhere at all.
+- The **repository name** is shown nowhere. That is the real loss: three channels on three checkouts of one monorepo are now told apart only by branch. ADR-0011's control row is its home and `-5o6` owns it; a bead records this so it is not quietly forgotten.
 
 Three claims above were wrong about `pane.process_info`, and each was found by calling it on a running Herdr rather than reading the schema. Two of them would have broken detection on the case that matters most.
 

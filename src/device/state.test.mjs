@@ -365,9 +365,9 @@ test("a workstream appearing shows up on the next snapshot", () => {
   );
 });
 
-test("a workstream changing state redraws from the event stream, with no snapshot read", () => {
-  // This is the whole point of recomputing the aggregate: Herdr pushes
-  // pane_updated and never workspace_updated, so nothing else would move.
+test("an agent changing state arrives on the event stream, with no snapshot read", () => {
+  // Herdr pushes pane_updated and never workspace_updated, so this is the only
+  // path by which a channel's agents stay current.
   const live = run([
     { kind: "herdr-connection", connected: true },
     snapshotOf({
@@ -375,13 +375,12 @@ test("a workstream changing state redraws from the event stream, with no snapsho
       panes: [{ pane_id: "w6:p1", workspace_id: "w6", agent: "claude", agent_status: "working", revision: 1 }]
     })
   ]).state;
-  assert.equal(workstreamsOf(live.snapshot)[0].agentStatus, "working");
 
   const blocked = run(
     [paneUpdate({ pane_id: "w6:p1", workspace_id: "w6", agent: "claude", agent_status: "blocked", revision: 2 })],
     live
   );
-  assert.equal(workstreamsOf(blocked.state.snapshot)[0].agentStatus, "blocked");
+  assert.equal(blocked.state.snapshot.panes[0].agent_status, "blocked");
   assert.deepEqual(blocked.commands, [], "no read was needed, so none was asked for");
 });
 
@@ -570,8 +569,16 @@ const paneOn = (workspaceId, id, overrides = {}) => ({
   ...overrides
 });
 
-const shellProcess = { pid: 1, name: "zsh", argv0: "zsh", cmdline: "-zsh" };
-const testProcess = { pid: 2, name: "node", argv0: "vitest", cmdline: "vitest --watch" };
+/** A `pane.process_info` reply, as Herdr sends one. */
+const runningIn = (paneId, cmdline) => ({
+  kind: "herdr-process-info",
+  paneId,
+  info: {
+    pane_id: paneId,
+    foreground_process_group_id: 7,
+    foreground_processes: [{ pid: 7, name: "x", argv0: cmdline.split(" ")[0], cmdline }]
+  }
+});
 
 /** The key at a channel's row and column, as the SDK addresses it. */
 const keyAt = (channel, column, row) => ({ deviceId: "xl-1", column: channel * 3 + column, row });
@@ -590,22 +597,49 @@ test("a snapshot asks what is running in panes it has not seen", () => {
   );
 });
 
-test("an agent pane is never asked about, because Herdr already said", () => {
-  // Herdr detects agents itself and pushes the answer, so a lookup would be a
-  // request per pane for something already known.
+test("an agent pane is asked about too, so its role can still be corrected", () => {
+  // Herdr's own detection decides the agent row, but a correction is remembered
+  // against a command line — so a pane never asked about could never be fixed.
   const { commands } = liveWith2(
     [workspaceOn(1, "auth")],
     [paneOn("w1", "agent", { agent: "claude" }), paneOn("w1", "other")]
   );
   assert.deepEqual(
     commands.filter((command) => command.kind === "load-process-info").map((command) => command.paneId),
-    ["w1:other"]
+    ["w1:agent", "w1:other"]
   );
+});
+
+test("holding an agent key corrects its role, which was impossible while agents went unasked", () => {
+  const live = run(
+    [runningIn("w1:a", "claude")],
+    liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude" })]).state
+  ).state;
+
+  const held = holdKey(live, keyAt(0, 0, 0));
+  assert.deepEqual(held.state.roles, { claude: "server" }, "the role after agent");
+});
+
+test("a pane whose process ends is asked about again, so it does not stay on the wrong row", () => {
+  const live = run(
+    [runningIn("w1:t", "vitest --watch")],
+    liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "t")]).state
+  ).state;
+  assert.ok("w1:t" in live.processes);
+
+  const exited = run(
+    [{ kind: "herdr-event", at: 0, event: { event: "pane_exited", data: { type: "pane_exited", pane_id: "w1:t" } } }],
+    live
+  ).state;
+  assert.ok(!("w1:t" in exited.processes), "what it was running is no longer true of it");
+
+  const asked = run([snapshotOf({ workspaces: [workspaceOn(1, "auth")], panes: [paneOn("w1", "t")] })], exited);
+  assert.ok(asked.commands.some((command) => command.kind === "load-process-info" && command.paneId === "w1:t"));
 });
 
 test("a pane already asked about is not asked again", () => {
   const first = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]);
-  const learnt = run([{ kind: "herdr-process-info", paneId: "w1:a", process: shellProcess }], first.state);
+  const learnt = run([runningIn("w1:a", "-zsh")], first.state);
   const again = run([snapshotOf({ workspaces: [workspaceOn(1, "auth")], panes: [paneOn("w1", "a")] })], learnt.state);
 
   assert.deepEqual(again.commands.filter((command) => command.kind === "load-process-info"), []);
@@ -613,7 +647,7 @@ test("a pane already asked about is not asked again", () => {
 
 test("what was learned about a pane is forgotten when the pane goes", () => {
   const learnt = run(
-    [{ kind: "herdr-process-info", paneId: "w1:a", process: shellProcess }],
+    [runningIn("w1:a", "-zsh")],
     liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state
   );
   assert.ok("w1:a" in learnt.state.processes);
@@ -624,7 +658,7 @@ test("what was learned about a pane is forgotten when the pane goes", () => {
 
 test("holding a pane key corrects its role, and the correction is persisted", () => {
   const live = run(
-    [{ kind: "herdr-process-info", paneId: "w1:t", process: testProcess }],
+    [runningIn("w1:t", "vitest --watch")],
     liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "t")]).state
   ).state;
 
@@ -643,7 +677,7 @@ test("a correction is remembered by command line, so it survives the pane restar
     [
       { kind: "herdr-connection", connected: true },
       snapshotOf({ workspaces: [workspaceOn(1, "auth")], panes: [paneOn("w1", "restarted")] }),
-      { kind: "herdr-process-info", paneId: "w1:restarted", process: testProcess }
+      runningIn("w1:restarted", "vitest --watch")
     ],
     restored.state
   ).state;
@@ -661,7 +695,7 @@ test("holding a pane nothing is known about corrects nothing, rather than forget
 
 test("tapping a pane key focuses that pane in Herdr", () => {
   const live = run(
-    [{ kind: "herdr-process-info", paneId: "w1:sh", process: shellProcess }],
+    [runningIn("w1:sh", "-zsh")],
     liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "sh")]).state
   ).state;
 
@@ -672,7 +706,7 @@ test("tapping a pane key focuses that pane in Herdr", () => {
 
 test("a hold on a pane key does not also focus it when the key comes back up", () => {
   const live = run(
-    [{ kind: "herdr-process-info", paneId: "w1:sh", process: shellProcess }],
+    [runningIn("w1:sh", "-zsh")],
     liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "sh")]).state
   ).state;
 

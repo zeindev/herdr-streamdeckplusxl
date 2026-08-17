@@ -1,5 +1,5 @@
 import type { PaneProcess, PaneSnapshot } from "../model.js";
-import { ROLE_ROWS, type Role } from "./role.js";
+import { ROLE_ROWS, programNameOf, type Role } from "./role.js";
 import type { Workstream } from "./workstream.js";
 
 /**
@@ -78,14 +78,15 @@ export function paneKeyLabel(pane: PaneSnapshot, process: PaneProcess | undefine
   const chosen = pane.label?.trim();
   if (chosen) return chosen;
   if (role === "agent" && pane.agent?.trim()) return pane.agent.trim();
-  const command = basenameOf(process?.argv0?.trim() || process?.cmdline?.trim());
-  if (command) return command;
-  return basenameOf(pane.cwd) || pane.pane_id;
+  // The same derivation detection uses, so a key can never be labelled with one
+  // program while being placed by another.
+  const program = programNameOf(process);
+  if (program) return program;
+  return directoryOf(pane.cwd) || pane.pane_id;
 }
 
-function basenameOf(value: string | undefined): string {
-  if (!value) return "";
-  return value.replace(/^-/, "").split(/\s+/)[0].split(/[\\/]/).pop() ?? "";
+function directoryOf(cwd: string | undefined): string {
+  return cwd?.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
 }
 
 /**

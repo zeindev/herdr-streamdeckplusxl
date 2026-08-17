@@ -80,10 +80,14 @@ test("a branch that fits is left exactly alone", () => {
   assert.equal(stripBlockOf(workstreamOn("a", { branch: "main" }), []).branch, "main");
 });
 
-test("the three ways a branch can be absent are three different words", () => {
+test("the ways a branch can be absent stay distinguishable", () => {
   assert.equal(stripBlockOf(workstreamOn("a"), []).branch, "UNKNOWN", "nobody has asked Herdr yet");
   assert.equal(stripBlockOf(workstreamOn("a", { branch: null }), []).branch, "DETACHED", "asked, and there is none");
-  assert.equal(stripBlockOf(workstreamOn("a", { worktree: false }), []).branch, "NO WORKTREE");
+});
+
+test("a workstream with no worktree is named by its label, since it has no branch", () => {
+  // Without this it would have no identity anywhere: the keys are all panes now.
+  assert.equal(stripBlockOf(workstreamOn("primary", { worktree: false }), []).branch, "primary");
 });
 
 test("attention counts the agents that want the developer, and only those", () => {

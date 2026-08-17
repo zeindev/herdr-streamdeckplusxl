@@ -31,14 +31,14 @@
   <svg x="14" y="330" width="144" height="144" viewBox="0 0 144 144">
     <rect width="144" height="144" fill="#000000"/>
     
-    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(205 214 244)" text-anchor="middle">vitest</text>
-    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(166 173 200)" text-anchor="middle" letter-spacing=".1">TESTS</text>
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="28.5" fill="rgb(205 214 244)" text-anchor="middle">w1:t1</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(166 173 200)" text-anchor="middle" letter-spacing=".1">SHELL</text>
   </svg>
   <svg x="172" y="330" width="144" height="144" viewBox="0 0 144 144">
     <rect width="144" height="144" fill="#000000"/>
     
-    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(205 214 244)" text-anchor="middle">vitest</text>
-    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(166 173 200)" text-anchor="middle" letter-spacing=".1">TESTS</text>
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="28.5" fill="rgb(205 214 244)" text-anchor="middle">w1:t2</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(166 173 200)" text-anchor="middle" letter-spacing=".1">SHELL</text>
   </svg>
   <svg x="330" y="330" width="144" height="144" viewBox="0 0 144 144">
     <rect width="144" height="144" fill="#000000"/>

@@ -1,9 +1,10 @@
 import type { AgentStatus, PaneSnapshot } from "../model.js";
 import { CHANNEL_COUNT, channelKeyIndex, keyCount, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
-import { channelRows, paneKeyLabel } from "./panes.js";
-import { roleResolver, type PaneProcesses, type Role } from "./role.js";
+import type { PaneCell } from "./panes.js";
+import { paneKeyLabel } from "./panes.js";
+import type { PaneProcesses, Role } from "./role.js";
 import { channelWorkstreams, overflowOf } from "./slots.js";
-import type { State } from "./state.js";
+import { channelRowsOf, type State } from "./state.js";
 import { OVERFLOW_CELLS, stripBlockOf, type StripBlock } from "./strip.js";
 import { workstreamsOf, type Workstream } from "./workstream.js";
 
@@ -75,7 +76,6 @@ export function surfaceOf(state: State): Surface {
   const workstreams = channelWorkstreams(state.slots, present);
   const overflow = overflowOf(state.slots, present).length;
   const panes = state.snapshot?.panes ?? [];
-  const roleFor = roleResolver(state.processes, state.roles);
   const devices: DeviceSurface[] = [];
   for (const device of state.devices) {
     const layout = layoutForDeviceType(device.type);
@@ -83,7 +83,7 @@ export function surfaceOf(state: State): Surface {
     devices.push({
       deviceId: device.id,
       layout: layout.kind,
-      keys: keysOf(layout, workstreams, panes, roleFor, state.processes),
+      keys: keysOf(state, layout, workstreams),
       encoders: encodersOf(layout, workstreams, panes, overflow, noticeFor(state))
     });
   }
@@ -91,35 +91,28 @@ export function surfaceOf(state: State): Surface {
 }
 
 function keysOf(
+  state: State,
   layout: DeviceLayout,
-  workstreams: ReadonlyArray<Workstream | null>,
-  panes: readonly PaneSnapshot[],
-  roleFor: (pane: PaneSnapshot) => Role,
-  processes: PaneProcesses
+  workstreams: ReadonlyArray<Workstream | null>
 ): KeyFace[] {
   const keys = Array.from({ length: keyCount(layout) }, () => BLANK);
   for (let channel = 0; channel < CHANNEL_COUNT; channel++) {
-    const workstream = workstreams[channel] ?? null;
-    if (!workstream) {
+    if (!workstreams[channel]) {
       // Nothing to show and something to offer, so the channel's first key asks
       // for a worktree rather than leaving three columns of unexplained black.
       keys[channelKeyIndex(layout, channel, 0, 0)] = { kind: "empty", slot: channel };
       continue;
     }
-    const rows = channelRows(workstream, panes, roleFor, layout.columnsPerChannel);
-    rows.forEach((row, rowIndex) =>
+    channelRowsOf(state, layout, channel).forEach((row, rowIndex) =>
       row.forEach((cell, column) => {
-        if (cell) keys[channelKeyIndex(layout, channel, column, rowIndex)] = paneFace(cell, processes);
+        if (cell) keys[channelKeyIndex(layout, channel, column, rowIndex)] = paneFace(cell, state.processes);
       })
     );
   }
   return keys;
 }
 
-function paneFace(
-  cell: NonNullable<ReturnType<typeof channelRows>[number][number]>,
-  processes: PaneProcesses
-): KeyFace {
+function paneFace(cell: PaneCell, processes: PaneProcesses): KeyFace {
   if (cell.kind === "more") return { kind: "more", count: cell.count };
   const label = paneKeyLabel(cell.pane, processes[cell.pane.pane_id] ?? undefined, cell.role);
   if (!cell.pane.agent) return { kind: "pane", label, role: cell.role };

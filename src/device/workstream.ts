@@ -1,10 +1,4 @@
-import {
-  agentStatusOfPanes,
-  type AgentStatus,
-  type HerdrSnapshot,
-  type PaneSnapshot,
-  type WorkspaceSnapshot
-} from "../model.js";
+import type { HerdrSnapshot, PaneSnapshot, WorkspaceSnapshot } from "../model.js";
 
 /**
  * What a workstream's checkout is, as the device needs it.
@@ -37,9 +31,12 @@ export type WorkstreamWorktree = {
  */
 export type Workstream = {
   workspaceId: string;
+  /**
+   * The developer's own name for the effort. Shown only when there is no branch
+   * to show instead — see ADR-0003 on what identity the device carries and what
+   * it does not.
+   */
   label: string;
-  /** Undefined when no pane in the workspace runs an agent. */
-  agentStatus: AgentStatus | undefined;
   worktree: WorkstreamWorktree | null;
 };
 
@@ -63,18 +60,14 @@ export type Branches = Readonly<Record<string, string | null>>;
  */
 export function workstreamsOf(snapshot: HerdrSnapshot | null, branches: Branches = {}): Workstream[] {
   if (!snapshot) return [];
-  const panesByWorkspace = groupPanesByWorkspace(snapshot.panes);
-  return [...(snapshot.workspaces ?? [])]
-    .sort(byNumberThenId)
-    .map((workspace) => toWorkstream(workspace, panesByWorkspace.get(workspace.workspace_id) ?? [], branches));
+  return [...(snapshot.workspaces ?? [])].sort(byNumberThenId).map((workspace) => toWorkstream(workspace, branches));
 }
 
-function toWorkstream(workspace: WorkspaceSnapshot, panes: PaneSnapshot[], branches: Branches): Workstream {
+function toWorkstream(workspace: WorkspaceSnapshot, branches: Branches): Workstream {
   const worktree = workspace.worktree;
   return {
     workspaceId: workspace.workspace_id,
     label: workspace.label?.trim() || (workspace.number ? `WORKSPACE ${workspace.number}` : workspace.workspace_id),
-    agentStatus: agentStatusOfPanes(panes),
     worktree: worktree
       ? {
           repoKey: worktree.repo_key,
@@ -86,17 +79,6 @@ function toWorkstream(workspace: WorkspaceSnapshot, panes: PaneSnapshot[], branc
         }
       : null
   };
-}
-
-function groupPanesByWorkspace(panes: readonly PaneSnapshot[]): Map<string, PaneSnapshot[]> {
-  const grouped = new Map<string, PaneSnapshot[]>();
-  for (const pane of panes) {
-    if (!pane.workspace_id) continue;
-    const existing = grouped.get(pane.workspace_id);
-    if (existing) existing.push(pane);
-    else grouped.set(pane.workspace_id, [pane]);
-  }
-  return grouped;
 }
 
 function byNumberThenId(left: WorkspaceSnapshot, right: WorkspaceSnapshot): number {

@@ -44,25 +44,6 @@ export const XL_LAYOUT: DeviceLayout = {
  */
 export const CHANNEL_COUNT = 3;
 
-/**
- * The row of a channel that carries who the workstream is and how it is doing.
- *
- * Row 0 for now. ADR-0003 gives the top three rows to panes and puts identity on
- * the strip, so this row returns to panes once the strip carries identity
- * permanently — until then it is the only place a channel can be read, and the
- * only place a channel can be pressed.
- */
-export const HEADER_ROW = 0;
-
-/**
- * The column of the header row that names the workstream.
- *
- * Both the projection and the input path need it — one draws the identity there,
- * the other listens for the hold that changes what the channel means — so it is
- * named once rather than being spelled `0` in two files that must agree.
- */
-export const IDENTITY_COLUMN = 0;
-
 /** The channel a column belongs to. */
 export function channelOfColumn(layout: DeviceLayout, column: number): number {
   return Math.floor(column / layout.columnsPerChannel);

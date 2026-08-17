@@ -3,7 +3,15 @@ import type { HerdrSnapshot, PaneProcess, PaneSnapshot, ResolvedThemeSnapshot, W
 import { sameKey, type Command, type DeviceEvent, type DeviceInfo, type KeyAddress } from "./events.js";
 import { channelOfColumn, columnInChannel, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
 import { channelRows, type PaneCell } from "./panes.js";
-import { commandKeyOf, nextRole, roleResolver, type PaneProcesses, type RoleOverrides } from "./role.js";
+import {
+  commandKeyOf,
+  commandLineOf,
+  identifyingProcess,
+  nextRole,
+  roleResolver,
+  type PaneProcesses,
+  type RoleOverrides
+} from "./role.js";
 import { bind, channelWorkstreams, cycle, emptySlots, forgetAbsent, sameSlots, type Slots } from "./slots.js";
 import { oneWorkspacePerRepository, workstreamsOf, type Branches } from "./workstream.js";
 
@@ -165,8 +173,12 @@ export function reduce(state: State, event: DeviceEvent): Step {
     }
 
     case "herdr-process-info": {
-      if (state.processes[event.paneId] === event.process) return { state, commands: [] };
-      return { state: { ...state, processes: { ...state.processes, [event.paneId]: event.process } }, commands: [] };
+      const process = identifyingProcess(event.info ?? undefined) ?? null;
+      const known = state.processes[event.paneId];
+      if (known !== undefined && commandLineOf(known ?? undefined) === commandLineOf(process ?? undefined)) {
+        return { state, commands: [] };
+      }
+      return { state: { ...state, processes: { ...state.processes, [event.paneId]: process } }, commands: [] };
     }
 
     case "herdr-worktrees": {
@@ -254,6 +266,16 @@ function applyHerdrEvent(state: State, event: HerdrEvent, at: number): Step {
     return snapshot === state.snapshot ? { state, commands: [] } : { state: { ...state, snapshot }, commands: [] };
   }
 
+  if (event.event === "pane_exited") {
+    // What was running in that pane has stopped, so what the plugin knows about
+    // it is now a guess about a process that no longer exists. Forgetting it
+    // makes the next snapshot ask again, which is how a pane that was running a
+    // test watcher and is now running a dev server stops being on the wrong row.
+    const forgotten = withoutPane(state, event.data.pane_id);
+    if (state.resyncRequestedAt !== null) return { state: forgotten, commands: [] };
+    return { state: { ...forgotten, resyncRequestedAt: at }, commands: [] };
+  }
+
   if (STRUCTURAL_EVENTS.has(event.event)) {
     // Already pending: the burst collapses into the read already scheduled.
     if (state.resyncRequestedAt !== null) return { state, commands: [] };
@@ -315,6 +337,22 @@ function presentWorkstreams(state: State) {
 }
 
 /**
+ * One channel's rows, from state.
+ *
+ * The reducer and the projection both need this, and they must agree: if a press
+ * acted on a different layout than the one drawn, the device would do something
+ * other than what the developer was looking at.
+ */
+export function channelRowsOf(state: State, layout: DeviceLayout, channel: number): Array<Array<PaneCell | null>> {
+  return channelRows(
+    channelWorkstreams(state.slots, presentWorkstreams(state))[channel] ?? null,
+    state.snapshot?.panes ?? [],
+    roleResolver(state.processes, state.roles),
+    layout.columnsPerChannel
+  );
+}
+
+/**
  * What sits on one key, which is what a press acts on.
  *
  * Derived the same way the projection derives it, from the same inputs, so a
@@ -323,22 +361,28 @@ function presentWorkstreams(state: State) {
 function cellAt(state: State, key: KeyAddress): PaneCell | null {
   const layout = layoutOf(state, key.deviceId);
   if (!layout) return null;
-  const rows = channelRows(
-    channelWorkstreams(state.slots, presentWorkstreams(state))[channelOfColumn(layout, key.column)] ?? null,
-    state.snapshot?.panes ?? [],
-    roleResolver(state.processes, state.roles),
-    layout.columnsPerChannel
-  );
+  const rows = channelRowsOf(state, layout, channelOfColumn(layout, key.column));
   return rows[key.row]?.[columnInChannel(layout, key.column)] ?? null;
 }
 
-/** Panes Herdr has not been asked about yet, and which need asking about. */
+/**
+ * Panes Herdr has not been asked about yet.
+ *
+ * Every pane is asked about, agents included. Herdr's own `agent` field still
+ * decides the agent row — it is more reliable than any pattern — but a role can
+ * only be *corrected* against a command line, so a pane whose command line was
+ * never fetched could never be corrected at all. Skipping agents saved one
+ * request each and made the agent row the one row nobody could fix.
+ */
 function unknownPanes(processes: PaneProcesses, snapshot: HerdrSnapshot): string[] {
-  // An agent pane needs no lookup: Herdr detects agents itself and says so on
-  // the snapshot, which is both cheaper and more reliable than any pattern.
-  return snapshot.panes
-    .filter((pane) => !pane.agent && !(pane.pane_id in processes))
-    .map((pane) => pane.pane_id);
+  return snapshot.panes.filter((pane) => !(pane.pane_id in processes)).map((pane) => pane.pane_id);
+}
+
+/** Forgets what was learned about one pane, so it is asked about again. */
+function withoutPane(state: State, paneId: unknown): State {
+  if (typeof paneId !== "string" || !(paneId in state.processes)) return state;
+  const { [paneId]: _gone, ...rest } = state.processes;
+  return { ...state, processes: rest };
 }
 
 /** Drops what was learned about panes that no longer exist. */

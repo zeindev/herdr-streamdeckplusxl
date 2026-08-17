@@ -97,12 +97,17 @@ export function stripBlockOf(
 }
 
 /**
- * Why there is no branch, when there is none. The three are different facts and
- * the strip says which, since a single "no branch" would hide the difference.
+ * What the strip leads with: the branch, or why there is not one.
+ *
+ * A workstream with no worktree falls back to its label, because otherwise it
+ * would have no identity anywhere on the device — the branch is what names a
+ * channel now that the keys are all panes, and "NO WORKTREE" names nothing.
+ * The three ways a branch can be absent stay distinguishable, since a single
+ * "no branch" would hide the difference between them.
  */
 function branchTextOf(workstream: Workstream): string {
   const worktree = workstream.worktree;
-  if (!worktree) return "NO WORKTREE";
+  if (!worktree) return workstream.label;
   if (worktree.branch === undefined) return "UNKNOWN";
   return worktree.branch ?? "DETACHED";
 }

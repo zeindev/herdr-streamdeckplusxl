@@ -161,13 +161,13 @@ test("a pane key carries its live state, named as well as coloured", () => {
 });
 
 test("a workspace with no worktree still shows its panes", () => {
-  const workspace = { ...workspaceOn(1, "primary"), worktree: null };
+  const workspace = { ...workspaceOn(1, "primary"), worktree: null, label: "primary" };
   const device = surfaceOf(
     liveState({ workspaces: [workspace], panes: [paneOn("w1", "p1", { agent: "claude" })] })
   ).devices[0];
 
   assert.equal(rowOf(device, 0, 0)[0].role, "agent");
-  assert.equal(device.encoders[0].block.branch, "NO WORKTREE");
+  assert.equal(device.encoders[0].block.branch, "primary", "its label names it, since it has no branch");
 });
 
 test("the three ways a branch can be absent read differently on the strip", () => {
@@ -178,7 +178,11 @@ test("the three ways a branch can be absent read differently on the strip", () =
   // is the same as a workspace with no checkout at all.
   assert.equal(branchOf(liveState({ workspaces: [workspace] })), "UNKNOWN");
   assert.equal(branchOf(liveState({ workspaces: [workspace], worktrees: [recordedWorktree({ branch: null })] })), "DETACHED");
-  assert.equal(branchOf(liveState({ workspaces: [recordedWorkspace({ workspace_id: "w6", number: 1, worktree: null })] })), "NO WORKTREE");
+  assert.equal(
+    branchOf(liveState({ workspaces: [recordedWorkspace({ workspace_id: "w6", number: 1, worktree: null, label: "primary" })] })),
+    "primary",
+    "a workstream with no worktree is named by its label"
+  );
 });
 
 test("the control row stays blank, since it belongs to another ticket", () => {

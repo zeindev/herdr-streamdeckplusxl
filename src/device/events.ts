@@ -1,5 +1,5 @@
 import type { HerdrEvent } from "../herdr/protocol.js";
-import type { HerdrSnapshot, PaneProcess, ResolvedThemeSnapshot, WorktreeEntry } from "../model.js";
+import type { HerdrSnapshot, PaneProcessInfo, ResolvedThemeSnapshot, WorktreeEntry } from "../model.js";
 import type { RoleOverrides } from "./role.js";
 import type { Slots } from "./slots.js";
 
@@ -25,8 +25,11 @@ export type DeviceEvent =
   | { kind: "herdr-snapshot"; snapshot: HerdrSnapshot }
   /** A `worktree.list` reply, which is the only place a branch is reported. */
   | { kind: "herdr-worktrees"; worktrees: WorktreeEntry[] }
-  /** A `pane.process_info` reply. Null when nothing identifiable is running. */
-  | { kind: "herdr-process-info"; paneId: string; process: PaneProcess | null }
+  /**
+   * A `pane.process_info` reply, whole. Which of its processes identifies the
+   * pane is a decision, so the reducer makes it rather than the adapter.
+   */
+  | { kind: "herdr-process-info"; paneId: string; info: PaneProcessInfo | null }
   /** `at` is stamped by the adapter so the reducer needs no clock of its own. */
   | { kind: "herdr-event"; event: HerdrEvent; at: number }
   | { kind: "theme-changed"; theme: ResolvedThemeSnapshot | null }

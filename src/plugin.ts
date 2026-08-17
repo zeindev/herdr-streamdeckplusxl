@@ -16,7 +16,7 @@ import type { JsonObject } from "@elgato/utils";
 
 import type { Command, DeviceEvent } from "./device/events.js";
 import { keyAddress, layoutForDeviceType, type DeviceLayout } from "./device/geometry.js";
-import { identifyingProcess, readRoles, storedRoles } from "./device/role.js";
+import { readRoles, storedRoles } from "./device/role.js";
 import { readSlots, storedSlots } from "./device/slots.js";
 import { initialState, reduce, type State } from "./device/state.js";
 import { changedControls, surfaceOf, type ControlChange, type EncoderFace, type KeyFace, type Surface } from "./device/surface.js";
@@ -139,8 +139,7 @@ class Adapter {
       }
       if (command.kind === "load-process-info") {
         const result = await this.herdr.request("pane.process_info", { pane_id: command.paneId });
-        const process = identifyingProcess(processInfoFromResult(result));
-        this.dispatch({ kind: "herdr-process-info", paneId: command.paneId, process: process ?? null });
+        this.dispatch({ kind: "herdr-process-info", paneId: command.paneId, info: processInfoFromResult(result) ?? null });
         return;
       }
       // Both durable settings live in one global object, so each write has to

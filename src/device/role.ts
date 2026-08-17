@@ -49,8 +49,28 @@ export function identifyingProcess(info: PaneProcessInfo | undefined): PaneProce
  * `2.1.233`, which would key an override to a release.
  */
 export function commandKeyOf(process: PaneProcess | undefined): string | undefined {
-  const command = process?.cmdline?.trim() || process?.argv0?.trim();
-  return command || undefined;
+  return commandLineOf(process) || undefined;
+}
+
+/**
+ * The command line a pane is running, as one string.
+ *
+ * `cmdline` first because it carries the arguments, and the arguments are where
+ * the meaning usually is — `npm` alone says nothing.
+ */
+export function commandLineOf(process: PaneProcess | undefined): string {
+  return process?.cmdline?.trim() || process?.argv0?.trim() || "";
+}
+
+/**
+ * The name of the program a pane is running, with no path and no arguments.
+ *
+ * Runners are stepped over, so `npx vitest` names vitest rather than npx. This
+ * is what a key is labelled with as well as what detection matches on, so the
+ * two can never disagree about which program a pane is running.
+ */
+export function programNameOf(process: PaneProcess | undefined): string {
+  return programToken(commandLineOf(process));
 }
 
 /**
@@ -110,37 +130,89 @@ export function nextRole(role: Role): Role {
 }
 
 /**
- * Patterns matched against a command line, most specific first.
+ * Ways of running something else, which say nothing about what a pane is for.
  *
- * Order is the whole design here: `npm test` and `npm run dev` differ only in
- * their script, and a test watcher started through a package manager must not be
- * read as a dev server just because both begin `npm run`.
+ * `npx vitest` is a test watcher and `pnpm exec jest` is too, so the runner is
+ * stepped over to reach the program that actually matters.
  */
-const PATTERNS: ReadonlyArray<{ role: Role; pattern: RegExp }> = [
-  // Following a log is unmistakable and would otherwise match nothing.
-  { role: "logs", pattern: /\btail\b[^|]*\s-[a-zA-Z]*f|\bjournalctl\b[^|]*\s(-f|--follow)|\blogs\b[^|]*\s(-f|--follow)/ },
+const RUNNERS: ReadonlySet<string> = new Set([
+  "npm", "npx", "pnpm", "pnpx", "yarn", "bun", "bunx", "deno", "poetry", "uv", "uvx", "pipenv", "bundle", "exec", "run"
+]);
+
+/**
+ * Programs recognised by name, matched against a whole token and never against
+ * the middle of the command line.
+ *
+ * Whole-token matching is the point. Searching the line for `next` reads
+ * `nvim next.config.js` as a dev server, which is the kind of confident wrong
+ * answer that teaches a developer to stop believing the device.
+ */
+const PROGRAMS: ReadonlyArray<{ role: Role; names: ReadonlySet<string> }> = [
+  {
+    role: "tests",
+    names: new Set(["vitest", "jest", "pytest", "mocha", "karma", "phpunit", "rspec", "nyc", "playwright", "cypress", "ava"])
+  },
+  {
+    role: "server",
+    names: new Set([
+      "vite", "next", "nuxt", "nodemon", "uvicorn", "gunicorn", "puma", "unicorn", "webpack", "esbuild",
+      "parcel", "serve", "http-server", "ng", "rails", "flask", "hugo", "jekyll"
+    ])
+  },
+  { role: "shell", names: new Set(["sh", "zsh", "bash", "fish", "ksh", "csh", "tcsh", "dash", "nu", "xonsh"]) }
+];
+
+/**
+ * Ways of asking a runner to do something, where the subcommand is what counts.
+ *
+ * These do match across the line, because that is where the meaning is: `npm`
+ * alone says nothing and `npm run dev` says everything. Tests come before
+ * servers because the two differ only in their script.
+ */
+const INVOCATIONS: ReadonlyArray<{ role: Role; pattern: RegExp }> = [
+  // Only the part before a pipe is the job: `tail -f x | grep y` is still a log
+  // follow, but `grep -f patterns x` on the right of one is not.
+  { role: "logs", pattern: /\btail\b[^|]*\s-[a-zA-Z]*[fF]\b|\bjournalctl\b[^|]*\s(-f|--follow)\b|\blogs\b[^|]*\s(-f|--follow)\b/ },
   {
     role: "tests",
     pattern:
-      /\b(vitest|jest|pytest|mocha|karma|phpunit|rspec|nyc|playwright|cypress)\b|\b(npm|pnpm|yarn|bun|deno)\s+(run\s+)?tests?\b|\b(cargo|go|dotnet|mix|swift)\s+test\b|\bnode\s+--test\b/
+      /\b(npm|pnpm|yarn|bun|deno)\s+(run\s+)?tests?\b|\b(cargo|go|dotnet|mix|swift|zig)\s+test\b|\bnode\s+--test\b|\bpytest\b|\bmanage\.py\s+test\b|\bgradlew?\s+test\b/
   },
   {
     role: "server",
     pattern:
-      /\b(vite|next|nuxt|nodemon|uvicorn|gunicorn|puma|unicorn|webpack|esbuild|parcel|serve|http-server|ng)\b|\b(npm|pnpm|yarn|bun|deno)\s+(run\s+)?(dev|start|serve|watch)\b|\b(rails|flask|django-admin|manage\.py)\b|\bdocker[\s-]compose\b[^|]*\bup\b|\bcargo\s+(run|watch)\b/
-  },
-  // A login shell arrives as "-zsh", so the dash is part of the shape.
-  { role: "shell", pattern: /^-?(z|ba|k|c|t|fi)?sh\b/ }
+      /\b(npm|pnpm|yarn|bun|deno)\s+(run\s+)?(dev|start|serve|watch)\b|\bdocker[\s-]compose\b[^|]*\bup\b|\bcargo\s+(run|watch)\b|\bmanage\.py\s+runserver\b/
+  }
 ];
 
+/**
+ * What a command line says a pane is for.
+ *
+ * An unrecognised program is a shell rather than nothing: it is something the
+ * developer is running by hand, which is what the shell row is for.
+ */
 function detectedRole(process: PaneProcess | undefined): Role {
-  const command = process?.cmdline?.trim() || process?.argv0?.trim();
+  const command = commandLineOf(process);
   if (!command) return "shell";
-  const basename = command.replace(/^-/, "").split(/\s+/)[0].split(/[\\/]/).pop() ?? "";
-  for (const { role, pattern } of PATTERNS) {
-    if (pattern.test(command) || pattern.test(basename)) return role;
+
+  for (const { role, pattern } of INVOCATIONS) {
+    if (pattern.test(command)) return role;
   }
-  // An unrecognised program is a shell rather than nothing: it is something the
-  // developer is running by hand, which is what the shell row is for.
+
+  const named = programToken(command);
+  for (const { role, names } of PROGRAMS) {
+    if (names.has(named)) return role;
+  }
   return "shell";
+}
+
+/** The first token that names a program rather than a way of running one. */
+function programToken(command: string): string {
+  const tokens = command.split(/\s+/).map(basenameOf).filter(Boolean);
+  return tokens.find((token) => !RUNNERS.has(token)) ?? tokens[0] ?? "";
+}
+
+/** A token's program name: no path, no leading dash from a login shell, no arguments. */
+function basenameOf(token: string): string {
+  return token.replace(/^-/, "").split(/[\\/]/).pop() ?? "";
 }

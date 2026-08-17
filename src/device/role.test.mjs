@@ -107,6 +107,30 @@ test("the common runners of each role are recognised", () => {
   }
 });
 
+test("a program named inside an argument is not mistaken for the program", () => {
+  // Searching the command line for "next" reads this as a dev server, which is
+  // the kind of confidently wrong answer that teaches you to stop believing the
+  // device. Program names match a whole token or not at all.
+  assert.equal(detect("nvim next.config.js"), "shell");
+  assert.equal(detect("vim src/server.ts"), "shell");
+  assert.equal(detect("cat contest.txt"), "shell");
+  assert.equal(detect("man test"), "shell");
+  assert.equal(detect("git log --follow CHANGELOG.md"), "shell", "a log is not logs being followed");
+});
+
+test("a runner is stepped over to reach the program that matters", () => {
+  assert.equal(detect("npx vitest"), "tests");
+  assert.equal(detect("pnpm exec jest --watch"), "tests");
+});
+
+test("a subcommand is read across the line, because that is where its meaning is", () => {
+  // `npm` alone says nothing; `npm run dev` says everything.
+  assert.equal(detect("npm run test:watch"), "tests");
+  assert.equal(detect("docker compose up"), "server");
+  assert.equal(detect("docker-compose up -d"), "server");
+  assert.equal(detect("docker ps"), "shell", "not every docker command is a server");
+});
+
 test("a login shell arrives with a leading dash and is still a shell", () => {
   assert.equal(roleOf(plainPane(), identifyingProcess(recordedShellPane)), "shell");
   for (const command of ["-zsh", "zsh", "bash", "-bash", "fish", "/bin/sh"]) {

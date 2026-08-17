@@ -569,6 +569,47 @@ test("attention changing redraws only the controls that moved", () => {
   );
 });
 
+/**
+ * `-2gn` closed with a gap in its own criterion 8: nothing proved a branch
+ * change redraws the strip specifically, only that agent-status changes do.
+ * The branch is what `worktree.list` supplies asynchronously after the
+ * snapshot (ADR-0001), so it can and does arrive as its own later update —
+ * this is that path, exercised directly.
+ */
+test("a branch arriving redraws only that channel's strip regions", () => {
+  const workspaces = [workspaceOn(1, "auth"), workspaceOn(2, "billing")];
+  const unnamed = liveState({ workspaces, panes: [] });
+  const named = run([{ kind: "herdr-worktrees", worktrees: [{ path: "/w/auth", branch: "feat/login" }] }], unnamed);
+
+  const changes = changedControls(surfaceOf(unnamed), surfaceOf(named));
+  assert.deepEqual(
+    changes.map((change) => `${change.control}:${change.index}`),
+    ["encoder:0", "encoder:1"],
+    "only auth's own two strip regions redraw; billing's channel and every key are untouched"
+  );
+});
+
+test("enrichment arriving on the strip redraws only that channel's regions, the same as a branch does", () => {
+  const workspaces = [workspaceOn(1, "auth"), workspaceOn(2, "billing")];
+  const unenriched = liveState({ workspaces, panes: [] });
+  const enriched = run(
+    [
+      {
+        kind: "herdr-snapshot",
+        snapshot: { workspaces: [{ ...workspaceOn(1, "auth"), tokens: { sd_tickets: "ABC-1", sd_pr: "42 open" } }, workspaceOn(2, "billing")], panes: [], tabs: [] }
+      }
+    ],
+    unenriched
+  );
+
+  const changes = changedControls(surfaceOf(unenriched), surfaceOf(enriched));
+  assert.deepEqual(
+    changes.map((change) => `${change.control}:${change.index}`),
+    ["encoder:0", "encoder:1"],
+    "only auth's own two strip regions redraw"
+  );
+});
+
 test("an asking pane hidden behind the overflow count still marks the grid", () => {
   // The channel's total counts panes the row had no key for, so without this a
   // developer could watch ATTN rise with nothing anywhere on the grid to look at.

@@ -145,7 +145,7 @@ test("resolveBaseRef gives up cleanly when nothing configured or inferable exist
   assert.equal(base, undefined);
 });
 
-test("buildReportArgs publishes a comma-joined token for a non-empty list", () => {
+test("buildReportArgs publishes a comma-joined token for a non-empty list, with a ttl", () => {
   const args = buildReportArgs({ workspaceId: "w1", ticketKeys: ["ABC-1", "ABC-2"], seq: 42 });
   assert.deepEqual(args, [
     "workspace",
@@ -155,12 +155,17 @@ test("buildReportArgs publishes a comma-joined token for a non-empty list", () =
     "herdr-plugin-tickets",
     "--seq",
     "42",
+    "--ttl-ms",
+    "86400000",
     "--token",
     "sd_tickets=ABC-1,ABC-2"
   ]);
 });
 
-test("buildReportArgs clears the token instead of publishing an empty value", () => {
+test("buildReportArgs publishes an empty value for an empty list, never clearing", () => {
+  // -wl7 needs "asked, and there are none" distinguishable from "never asked
+  // at all" (or expired past the ttl above) — both of which read as the
+  // token being entirely absent, not as an empty string.
   const args = buildReportArgs({ workspaceId: "w1", ticketKeys: [], seq: 42 });
   assert.deepEqual(args, [
     "workspace",
@@ -170,8 +175,10 @@ test("buildReportArgs clears the token instead of publishing an empty value", ()
     "herdr-plugin-tickets",
     "--seq",
     "42",
-    "--clear-token",
-    "sd_tickets"
+    "--ttl-ms",
+    "86400000",
+    "--token",
+    "sd_tickets="
   ]);
 });
 
@@ -228,7 +235,7 @@ test("run publishes the branch-seeded list for a fresh workstream with no commit
   assert.ok(Number(args[seqIndex]) > 0, "seq must be a positive number");
   assert.deepEqual(
     [...args.slice(0, seqIndex - 1), ...args.slice(seqIndex + 1)],
-    ["workspace", "report-metadata", "w1", "--source", "herdr-plugin-tickets", "--token", "sd_tickets=ABC-9"]
+    ["workspace", "report-metadata", "w1", "--source", "herdr-plugin-tickets", "--ttl-ms", "86400000", "--token", "sd_tickets=ABC-9"]
   );
 });
 

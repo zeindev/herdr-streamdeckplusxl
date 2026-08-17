@@ -79,6 +79,18 @@ test("a workspace with no worktree needs no read, since it has no branch to lear
   assert.deepEqual(oneWorkspacePerRepository(workstreamsOf({ workspaces: [workspace], panes: [] })), []);
 });
 
+test("a workspace's tokens are carried straight through to its workstream", () => {
+  const workspace = recordedWorkspace({ tokens: { sd_tickets: "ABC-1,ABC-2" } });
+  const [workstream] = workstreamsOf({ workspaces: [workspace], panes: [] });
+  assert.deepEqual(workstream.tokens, { sd_tickets: "ABC-1,ABC-2" });
+});
+
+test("a workspace with no tokens carries that through too, not an invented empty object", () => {
+  const workspace = recordedWorkspace({ tokens: null });
+  const [workstream] = workstreamsOf({ workspaces: [workspace], panes: [] });
+  assert.equal(workstream.tokens, null);
+});
+
 test("no snapshot means no workstreams rather than a crash", () => {
   assert.deepEqual(workstreamsOf(null), []);
   assert.deepEqual(workstreamsOf({ panes: [] }), []);

@@ -38,6 +38,13 @@ export type Workstream = {
    */
   label: string;
   worktree: WorkstreamWorktree | null;
+  /**
+   * Carried straight through from `WorkspaceSnapshot.tokens` — see that type
+   * for why it is both optional and nullable. `-wl7`'s enrichment readers
+   * (`src/device/enrichment.ts`) are what interpret `sd_tickets` and `sd_pr`
+   * out of this; this module only relays it.
+   */
+  tokens?: Record<string, string> | null;
 };
 
 /**
@@ -68,6 +75,7 @@ function toWorkstream(workspace: WorkspaceSnapshot, branches: Branches): Workstr
   return {
     workspaceId: workspace.workspace_id,
     label: workspace.label?.trim() || (workspace.number ? `WORKSPACE ${workspace.number}` : workspace.workspace_id),
+    tokens: workspace.tokens,
     worktree: worktree
       ? {
           repoKey: worktree.repo_key,

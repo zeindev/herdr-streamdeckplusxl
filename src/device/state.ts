@@ -459,9 +459,10 @@ function applyControlTap(state: State, control: { workspaceId: string; column: n
   }
 
   if (control.column === GIT_COLUMN) {
-    // Nothing in the snapshot carries pull-request state yet — that is -5ot
-    // and -7bl, both open — so this key has nothing to open and says so
-    // rather than pretending to be a shortcut to somewhere it cannot reach.
+    // `-wl7` put pull-request state on the strip (`sd_pr`, read by
+    // `pullRequestReadingValue`), but taught nothing about opening a browser
+    // to it — that scope is still unclaimed, so this key has nowhere to send
+    // a tap and says so rather than pretending to be a shortcut it is not.
     return { state: locallyAcknowledged(state, control, false, "NO PR YET", at), commands: [] };
   }
 

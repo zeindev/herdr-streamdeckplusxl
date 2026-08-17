@@ -34,9 +34,14 @@
  * key, and a repository with no entry falls back to inferring its base from
  * the remote's default branch, then a short list of common branch names.
  *
- * WHY AN EMPTY LIST CLEARS THE TOKEN RATHER THAN PUBLISHING ONE. Matches the
- * convention `sd_attn_`/`sd_exit_` already set: "nothing to report" reads as
- * an absent token, not a token whose value happens to be empty.
+ * WHY AN EMPTY LIST STILL PUBLISHES, UNLIKE `sd_attn_`/`sd_exit_`. Those two
+ * clear on "nothing to report" because presence itself is the fact — an
+ * agent is or is not asking something, a service is or is not dead. A ticket
+ * count is different: zero is a real, meaningful answer once asked, and
+ * `-wl7` needs it distinguishable from never having asked at all (or having
+ * asked so long ago the `--ttl-ms` below expired the answer). So this always
+ * writes a value, `sd_tickets=` for a genuinely empty list, and only the
+ * token's total absence — never published, or expired — means unknown.
  *
  * SILENT WHEREVER IT CANNOT ACT, same trade `scripts/herdr-attention` and
  * `scripts/herdr-service` make: outside a Herdr workspace, or on any error
@@ -57,6 +62,19 @@ const SOURCE = "herdr-plugin-tickets";
 const TOKEN_NAME = "sd_tickets";
 const BASE_REF_CANDIDATES = ["origin/main", "origin/master", "main", "master", "develop"];
 const HOOK_MARKER = "# installed-by: herdr-tickets";
+
+/**
+ * Herdr's own cap on a token's `--ttl-ms` (ADR-0004). Long enough to survive
+ * a quiet day with no commits and no worktree events; short enough that a
+ * Herdr plugin stopped for good eventually reads as unknown on the device
+ * (`-wl7`) rather than showing a list that stopped being true.
+ *
+ * A fixed constant rather than `scripts/herdr-pr.mjs`'s `ttlForPollInterval`,
+ * because there is no poll cadence here to scale against — this republishes
+ * on git/worktree events, not on a timer, so the ceiling itself is the only
+ * sensible anchor.
+ */
+const TICKETS_TTL_MS = 24 * 60 * 60 * 1000;
 
 const SCRIPT_PATH = fileURLToPath(new URL("./herdr-tickets.mjs", import.meta.url));
 
@@ -176,11 +194,29 @@ function currentBranch(cwd) {
   return git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]) ?? "";
 }
 
-/** The `herdr` CLI invocation this run should make, or `undefined` for nothing to report. */
+/**
+ * The `herdr` CLI invocation this run should make. Always publishes a value,
+ * never clears — an empty list is reported as `sd_tickets=` (an empty
+ * string), not an absent token. `-wl7` needs the two distinguishable: absent
+ * is "never reported, or reported so long ago the TTL below expired it",
+ * while an empty string is "asked, and there is genuinely nothing". Collapsing
+ * the two into "absent either way" would make a workstream with zero tickets
+ * indistinguishable from one whose Herdr plugin was never running at all.
+ */
 export function buildReportArgs({ workspaceId, ticketKeys, seq }) {
-  const base = ["workspace", "report-metadata", workspaceId, "--source", SOURCE, "--seq", String(seq)];
-  if (ticketKeys.length === 0) return [...base, "--clear-token", TOKEN_NAME];
-  return [...base, "--token", `${TOKEN_NAME}=${ticketKeys.join(",")}`];
+  return [
+    "workspace",
+    "report-metadata",
+    workspaceId,
+    "--source",
+    SOURCE,
+    "--seq",
+    String(seq),
+    "--ttl-ms",
+    String(TICKETS_TTL_MS),
+    "--token",
+    `${TOKEN_NAME}=${ticketKeys.join(",")}`
+  ];
 }
 
 /**

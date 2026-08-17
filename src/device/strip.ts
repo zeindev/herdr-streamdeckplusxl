@@ -1,7 +1,10 @@
 import type { PaneSnapshot } from "../model.js";
 import { READING_GAP, displayWidth, truncateMiddle } from "../text.js";
 import type { AttentionItem } from "./attention.js";
+import { pullRequestReadingValue, ticketsReadingValue } from "./enrichment.js";
 import type { Workstream } from "./workstream.js";
+
+export { UNKNOWN } from "./enrichment.js";
 
 /**
  * One reading on a channel's strip: what it is, and what it says.
@@ -49,15 +52,6 @@ export const READING_CELLS = 32;
 
 /** Cells the overflow count takes from the last channel: "OVER +9" and its gap. */
 export const OVERFLOW_CELLS = 9;
-
-/**
- * The value shown where enrichment will go but has not arrived.
- *
- * An explicit unknown rather than a blank: a blank reading looks like a reading
- * that does not exist, and the whole point of reserving the space is that the
- * developer learns where to look before there is anything to see.
- */
-export const UNKNOWN = "?";
 
 /**
  * A reading, plus what the layout must promise it.
@@ -122,9 +116,12 @@ function branchTextOf(workstream: Workstream): string {
 /**
  * Every reading a channel could show, most important first.
  *
- * The ticket count and the pull request are reserved here rather than added
- * later, at the width their real values will need, so `-wl7` filling them in
- * changes what they say and not where anything sits.
+ * The ticket count and the pull request are reserved at the width their
+ * *unknown* values need — one cell and four — so a real answer arriving
+ * (`-wl7`) can only change what they say, never where anything else sits. A
+ * value wider than its reserve is still allowed to grow past it; it simply
+ * spends the droppable `AGENTS` reading to do so, the same trade `EXIT`
+ * makes below.
  */
 function candidatesFor(
   workstream: Workstream,
@@ -135,12 +132,13 @@ function candidatesFor(
   const exited = attention.filter((item) => item.reason === "exited").length;
   return [
     { label: "ATTN", value: String(attention.length), required: true, reserve: 1 },
-    { label: "TKT", value: UNKNOWN, required: true, reserve: 1 },
+    { label: "TKT", value: ticketsReadingValue(workstream), required: true, reserve: 1 },
     // Four cells is what the layout can promise a pull request without costing
-    // the optional reading below, so `-wl7` has to say its state in four: OPEN,
-    // DRFT, or a number. Going wider is allowed and simply spends AGENTS, which
-    // is what being the droppable one means.
-    { label: "PR", value: UNKNOWN, required: true, reserve: 4 },
+    // the optional reading below, so its state is always four characters or
+    // fewer — OPEN, NONE, APRV, CHNG, FAIL, MRGD, CLSD, or UNKNOWN's "?" — per
+    // `pullRequestReadingValue`. Going wider is allowed and simply spends
+    // AGENTS, which is what being the droppable one means; nothing today does.
+    { label: "PR", value: pullRequestReadingValue(workstream), required: true, reserve: 4 },
     // A dead service usually keeps a key — crashing under the wrapper does not
     // end the pane's shell — but it is the one item that can lose one, when the
     // service was the pane's whole command. Naming it here means the count never

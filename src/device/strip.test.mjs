@@ -49,7 +49,11 @@ function blockOf(workstream, panes = [], { tokens = null, acknowledged = [], ...
   const { tokens: _recorded, ...recorded } = recordedWorkspace();
   const workspaces = [{ ...recorded, workspace_id: "w1", ...(tokens ? { tokens } : {}) }];
   const attention = attentionOf({ panes, workspaces }, acknowledged);
-  return stripBlockOf(workstream, panes, {
+  // `-wl7`'s own readings (TKT, PR) come off `workstream.tokens` directly, the
+  // same field `attentionOf` above reads off the workspace it was built from
+  // — kept in sync here so a test only has to say `tokens` once.
+  const enriched = workstream && tokens ? { ...workstream, tokens } : workstream;
+  return stripBlockOf(enriched, panes, {
     ...options,
     attention: attentionIn(attention, workstream?.workspaceId ?? null)
   });
@@ -137,6 +141,56 @@ test("space for ticket and pull-request state is reserved and reads as unknown",
   const block = blockOf(workstreamOn("auth", { branch: "main" }), []);
   assert.equal(valueOf(block, "TKT"), UNKNOWN);
   assert.equal(valueOf(block, "PR"), UNKNOWN);
+});
+
+test("the strip shows the ticket keys themselves once sd_tickets has arrived and they fit", () => {
+  const workstream = workstreamOn("auth", { branch: "main" });
+  const block = blockOf(workstream, [], { tokens: { sd_tickets: "AB-1,CD-2" } });
+  assert.equal(valueOf(block, "TKT"), "AB-1, CD-2");
+});
+
+test("the strip falls back to a bare count once the ticket keys would not fit", () => {
+  const workstream = workstreamOn("auth", { branch: "main" });
+  const block = blockOf(workstream, [], { tokens: { sd_tickets: "ALPHA-101,BETA-202,GAMMA-303" } });
+  assert.equal(valueOf(block, "TKT"), "3");
+});
+
+test("a genuinely empty ticket list reads as a real zero, not the unknown mark", () => {
+  const workstream = workstreamOn("auth", { branch: "main" });
+  const block = blockOf(workstream, [], { tokens: { sd_tickets: "" } });
+  assert.equal(valueOf(block, "TKT"), "0");
+});
+
+test("the strip distinguishes a pull request not yet opened from one open with nothing outstanding", () => {
+  const workstream = workstreamOn("auth", { branch: "main" });
+  const notYetOpened = valueOf(blockOf(workstream, [], { tokens: { sd_pr: "none" } }), "PR");
+  const openClean = valueOf(blockOf(workstream, [], { tokens: { sd_pr: "42 open" } }), "PR");
+  assert.notEqual(notYetOpened, openClean);
+  assert.equal(notYetOpened, "NONE");
+  assert.equal(openClean, "OPEN");
+});
+
+test("every pull-request reading fits the four cells the layout promised it, without costing AGENTS", () => {
+  const workstream = workstreamOn("auth", { branch: "main" });
+  const panes = [agentPane("working")];
+  for (const raw of ["none", "42 open", "42 approved", "42 changes_requested", "42 checks_failing", "42 merged", "42 closed", "unknown no-auth"]) {
+    const block = blockOf(workstream, panes, { tokens: { sd_pr: raw } });
+    assert.ok(displayWidth(valueOf(block, "PR")) <= 4, `"${raw}" produced a PR value wider than four cells`);
+    assert.deepEqual(labelsOf(block), ["ATTN", "TKT", "PR", "AGENTS"], `"${raw}" cost the AGENTS reading`);
+  }
+});
+
+test("stale enrichment past its lifetime is unknown, exactly like enrichment that never arrived", () => {
+  // Herdr expiring a `--ttl-ms` token looks identical to it never having been
+  // written: the token is simply absent from `tokens`. Nothing device-side
+  // needs its own clock for this — the two cases are the same input.
+  const workstream = workstreamOn("auth", { branch: "main" });
+  const neverArrived = blockOf(workstream, []);
+  const expired = blockOf(workstream, [], { tokens: {} });
+  assert.equal(valueOf(neverArrived, "TKT"), UNKNOWN);
+  assert.equal(valueOf(expired, "TKT"), UNKNOWN);
+  assert.equal(valueOf(neverArrived, "PR"), UNKNOWN);
+  assert.equal(valueOf(expired, "PR"), UNKNOWN);
 });
 
 test("readings sit in a fixed order, so one is always found in the same place", () => {

@@ -21,6 +21,7 @@ import {
   readPidFile,
   resolveAuthToken,
   runPollLoop,
+  ttlForPollInterval,
   writePidFile
 } from "./herdr-pr.mjs";
 
@@ -149,8 +150,8 @@ test("buildTokenValue joins the pull-request number and state", () => {
   assert.equal(buildTokenValue({ prNumber: 42, state: "approved" }), "42 approved");
 });
 
-test("buildReportArgs publishes a token for a known value", () => {
-  assert.deepEqual(buildReportArgs({ workspaceId: "w1", value: "42 approved", seq: 7 }), [
+test("buildReportArgs publishes a token for a known value, with a ttl", () => {
+  assert.deepEqual(buildReportArgs({ workspaceId: "w1", value: "42 approved", seq: 7, ttlMs: 900000 }), [
     "workspace",
     "report-metadata",
     "w1",
@@ -158,13 +159,18 @@ test("buildReportArgs publishes a token for a known value", () => {
     "herdr-plugin-github",
     "--seq",
     "7",
+    "--ttl-ms",
+    "900000",
     "--token",
     "sd_pr=42 approved"
   ]);
 });
 
-test("buildReportArgs clears the token when there is no pull request", () => {
-  assert.deepEqual(buildReportArgs({ workspaceId: "w1", value: undefined, seq: 7 }), [
+test("buildReportArgs publishes 'none' rather than clearing when there is no pull request", () => {
+  // -wl7 needs "asked, and there is none yet" distinguishable from "never
+  // asked" (or expired past the ttl) — both of which read as the token being
+  // entirely absent, not as any particular value.
+  assert.deepEqual(buildReportArgs({ workspaceId: "w1", value: "none", seq: 7, ttlMs: 900000 }), [
     "workspace",
     "report-metadata",
     "w1",
@@ -172,9 +178,17 @@ test("buildReportArgs clears the token when there is no pull request", () => {
     "herdr-plugin-github",
     "--seq",
     "7",
-    "--clear-token",
-    "sd_pr"
+    "--ttl-ms",
+    "900000",
+    "--token",
+    "sd_pr=none"
   ]);
+});
+
+test("ttlForPollInterval is a documented multiple of the poll interval, capped at Herdr's own ttl ceiling", () => {
+  assert.equal(ttlForPollInterval(300000), 900000);
+  assert.equal(ttlForPollInterval(60000), 180000);
+  assert.equal(ttlForPollInterval(20 * 60 * 60 * 1000), 24 * 60 * 60 * 1000, "never exceeds Herdr's 24h cap");
 });
 
 /** A fake `fetch` that answers from a table keyed by URL, recording every call it saw. */
@@ -210,7 +224,10 @@ test("pollOnce reports unknown no-auth when no token is configured or available"
     report: (...args) => calls.push(args)
   });
   assert.deepEqual(result, { ran: true, state: "unknown", reason: "no-auth" });
-  assert.deepEqual(calls[0][1], ["workspace", "report-metadata", "w1", "--source", "herdr-plugin-github", "--seq", String(calls[0][1][6]), "--token", "sd_pr=unknown no-auth"]);
+  const args = calls[0][1];
+  assert.deepEqual(args.slice(0, 6), ["workspace", "report-metadata", "w1", "--source", "herdr-plugin-github", "--seq"]);
+  assert.ok(Number(args[6]) > 0, "seq must be a positive number");
+  assert.deepEqual(args.slice(7), ["--ttl-ms", String(DEFAULT_POLL_INTERVAL_MS * 3), "--token", "sd_pr=unknown no-auth"]);
 });
 
 test("pollOnce reports unknown unsupported-remote for a non-GitHub origin", async () => {
@@ -225,7 +242,7 @@ test("pollOnce reports unknown unsupported-remote for a non-GitHub origin", asyn
   assert.equal(result.reason, "unsupported-remote");
 });
 
-test("pollOnce clears the token when GitHub has no pull request for the branch", async () => {
+test("pollOnce publishes an explicit 'none' rather than clearing when GitHub has no pull request for the branch", async () => {
   const dir = withGitRemote("git@github.com:acme/widgets.git");
   const { fetchImpl } = stubFetch({
     "https://api.github.com/repos/acme/widgets/pulls?head=acme:main&state=all&sort=updated&direction=desc&per_page=1": { body: [] }
@@ -238,7 +255,7 @@ test("pollOnce clears the token when GitHub has no pull request for the branch",
     report: (...args) => calls.push(args)
   });
   assert.equal(result.state, "none");
-  assert.deepEqual(calls[0][1].slice(-2), ["--clear-token", "sd_pr"]);
+  assert.deepEqual(calls[0][1].slice(-2), ["--token", "sd_pr=none"]);
 });
 
 test("pollOnce publishes number and state for an open pull request with a real review and checks call", async () => {

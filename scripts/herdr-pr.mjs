@@ -48,6 +48,13 @@
  * most recent thing this script actually knows, never the last thing it
  * managed to learn before something broke.
  *
+ * WHY "NO PULL REQUEST YET" IS ITS OWN VALUE (`none`) RATHER THAN CLEARING
+ * THE TOKEN. `-wl7` needs to show that distinctly from "nothing has been
+ * reported" (the plugin never ran, or the `--ttl-ms` below expired the last
+ * answer) — both of which the device only ever sees as the token being
+ * entirely absent. Only genuine total absence reads as unknown; every real
+ * answer, including "there is no pull request", is an explicit value.
+ *
  * Config lives at `HERDR_PLUGIN_CONFIG_DIR/github.json`:
  *
  *   { "token": "ghp_...", "pollIntervalMs": 300000, "apiBaseUrl": "https://api.github.com" }
@@ -66,6 +73,21 @@ import { parseContext, worktreeFrom } from "./herdr-plugin-context.mjs";
 
 export const DEFAULT_POLL_INTERVAL_MS = 5 * 60 * 1000;
 export const DEFAULT_API_BASE_URL = "https://api.github.com";
+
+/** Herdr's own cap on a token's `--ttl-ms` (ADR-0004). */
+const MAX_TTL_MS = 24 * 60 * 60 * 1000;
+/**
+ * How many missed polls a stale answer survives before the device falls back
+ * to unknown (`-wl7`) — long enough that one slow or failed tick does not
+ * flap the strip, short enough that a stopped poller stops lying within
+ * roughly a poll cycle of anyone actually needing to know that.
+ */
+const TTL_POLL_MULTIPLE = 3;
+
+/** The `--ttl-ms` for a poll running at `pollIntervalMs`, capped at what Herdr itself allows. */
+export function ttlForPollInterval(pollIntervalMs) {
+  return Math.min(pollIntervalMs * TTL_POLL_MULTIPLE, MAX_TTL_MS);
+}
 
 const SOURCE = "herdr-plugin-github";
 const TOKEN_NAME = "sd_pr";
@@ -157,11 +179,15 @@ export function buildTokenValue({ prNumber, state }) {
   return `${prNumber} ${state}`;
 }
 
-/** The `herdr` CLI invocation for one report. `value` of `undefined` clears the token — "no pull request yet". */
-export function buildReportArgs({ workspaceId, value, seq }) {
-  const base = ["workspace", "report-metadata", workspaceId, "--source", SOURCE, "--seq", String(seq)];
-  if (value === undefined) return [...base, "--clear-token", TOKEN_NAME];
-  return [...base, "--token", `${TOKEN_NAME}=${value}`];
+/**
+ * The `herdr` CLI invocation for one report. Always publishes `value` — every
+ * poll tick, including "no pull request" (`"none"`) and every failure kind,
+ * is an explicit answer, per this file's header on why absence is reserved
+ * for "never reported" alone. `ttlMs` bounds how long that answer is trusted
+ * before Herdr itself drops it and the device falls back to unknown.
+ */
+export function buildReportArgs({ workspaceId, value, seq, ttlMs }) {
+  return ["workspace", "report-metadata", workspaceId, "--source", SOURCE, "--seq", String(seq), "--ttl-ms", String(ttlMs), "--token", `${TOKEN_NAME}=${value}`];
 }
 
 function githubHeaders(token) {
@@ -225,9 +251,10 @@ export async function pollOnce({ env, cwd: providedCwd, herdrBin = "herdr", repo
   const branch = worktree.branch ?? currentBranch(cwd);
   const config = loadConfig(env.HERDR_PLUGIN_CONFIG_DIR);
   const token = resolveAuthToken(env, config);
+  const ttlMs = ttlForPollInterval(config.pollIntervalMs);
 
   const publish = (value) => {
-    report(herdrBin, buildReportArgs({ workspaceId, value, seq: now() }), { encoding: "utf8", stdio: ["ignore", "ignore", "ignore"] });
+    report(herdrBin, buildReportArgs({ workspaceId, value, seq: now(), ttlMs }), { encoding: "utf8", stdio: ["ignore", "ignore", "ignore"] });
   };
 
   if (!token) {
@@ -246,7 +273,7 @@ export async function pollOnce({ env, cwd: providedCwd, herdrBin = "herdr", repo
     const { owner, repo } = parsedRemote;
     const pr = await findPullRequestForBranch({ owner, repo, branch, token, apiBaseUrl: config.apiBaseUrl, fetchImpl });
     if (!pr) {
-      publish(undefined);
+      publish("none");
       return { ran: true, state: "none" };
     }
 

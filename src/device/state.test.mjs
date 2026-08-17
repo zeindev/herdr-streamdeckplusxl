@@ -8,6 +8,7 @@ import { attentionOf } from "../../.preview/device/attention.js";
 import { overflowOf, readSlots } from "../../.preview/device/slots.js";
 import { roleResolver } from "../../.preview/device/role.js";
 import { DEVICE_TYPE_XL } from "../../.preview/device/geometry.js";
+import { UNKNOWN, pullRequestReadingValue, ticketsReadingValue } from "../../.preview/device/enrichment.js";
 import { workstreamsOf } from "../../.preview/device/workstream.js";
 import { recordedEvents, recordedWorkspace, recordedWorktree } from "../herdr/fixtures/recorded.mjs";
 
@@ -1045,4 +1046,64 @@ test("a workspace token change is structural, so the device re-reads and sees it
     live
   );
   assert.deepEqual(declared.commands, [{ kind: "load-snapshot" }]);
+});
+
+/**
+ * `-wl7`'s own four reducer cases: enrichment arriving, updating, expiring,
+ * and never appearing at all. `workspace_metadata_updated` being structural
+ * (proven just above) is what makes "arriving" and "updating" live with no
+ * press — a snapshot re-read is the only path either one needs, the same
+ * path `sd_exit_`/`sd_attn_` already rely on. "Expiring" is not a distinct
+ * code path either: Herdr enforces `--ttl-ms` server-side, so an expired
+ * token and one that was never written look identical to the next
+ * snapshot — absent from `tokens` — which is why both are asserted the same
+ * way here rather than through some clock the reducer does not have.
+ */
+function ticketsOf(state) {
+  return ticketsReadingValue(workstreamsOf(state.snapshot)[0]);
+}
+
+function pullRequestOf(state) {
+  return pullRequestReadingValue(workstreamsOf(state.snapshot)[0]);
+}
+
+test("enrichment never appearing reads as unknown, for both readings", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], []).state;
+  assert.equal(ticketsOf(live), UNKNOWN);
+  assert.equal(pullRequestOf(live), UNKNOWN);
+});
+
+test("enrichment arriving is visible on the very next snapshot, with no press", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], []).state;
+  assert.equal(ticketsOf(live), UNKNOWN, "nothing published yet");
+
+  const arrived = run(
+    [snapshotOf({ workspaces: [{ ...workspaceOn(1, "auth"), tokens: { sd_tickets: "ABC-1", sd_pr: "42 open" } }] })],
+    live
+  ).state;
+  assert.equal(ticketsOf(arrived), "ABC-1");
+  assert.equal(pullRequestOf(arrived), "OPEN");
+});
+
+test("enrichment updating replaces what the strip shows, not merges with it", () => {
+  const opened = liveWith2([{ ...workspaceOn(1, "auth"), tokens: { sd_tickets: "ABC-1", sd_pr: "42 open" } }], []).state;
+  assert.equal(pullRequestOf(opened), "OPEN");
+
+  const approved = run(
+    [snapshotOf({ workspaces: [{ ...workspaceOn(1, "auth"), tokens: { sd_tickets: "ABC-1,ABC-2", sd_pr: "42 approved" } }] })],
+    opened
+  ).state;
+  assert.equal(ticketsOf(approved), "ABC-1, ABC-2");
+  assert.equal(pullRequestOf(approved), "APRV");
+});
+
+test("enrichment expiring reads as unknown again, the same as it never having arrived", () => {
+  // What a `--ttl-ms` expiry looks like from here: the next snapshot simply
+  // no longer carries the token, exactly as if it had never been written.
+  const live = liveWith2([{ ...workspaceOn(1, "auth"), tokens: { sd_tickets: "ABC-1", sd_pr: "42 open" } }], []).state;
+  assert.equal(ticketsOf(live), "ABC-1");
+
+  const expired = run([snapshotOf({ workspaces: [workspaceOn(1, "auth")] })], live).state;
+  assert.equal(ticketsOf(expired), UNKNOWN);
+  assert.equal(pullRequestOf(expired), UNKNOWN);
 });

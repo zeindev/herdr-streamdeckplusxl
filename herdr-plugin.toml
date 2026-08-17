@@ -12,3 +12,17 @@ platforms = ["windows"]
 [[build]]
 command = ["sh", "scripts/install-streamdeck.sh"]
 platforms = ["linux", "macos"]
+
+# Herdr-side enrichment (ADR-0004, ADR-0006): derives a workstream's ticket
+# list from Git and publishes it as the workspace token `sd_tickets`. Runs in
+# the Herdr plugin process, independently of the Stream Deck app.
+[[startup]]
+command = ["node", "scripts/herdr-tickets.mjs", "startup"]
+
+[[events]]
+on = "worktree.created"
+command = ["node", "scripts/herdr-tickets.mjs", "worktree-created"]
+
+[[events]]
+on = "worktree.opened"
+command = ["node", "scripts/herdr-tickets.mjs", "worktree-opened"]

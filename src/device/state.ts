@@ -1,6 +1,6 @@
 import type { HerdrEvent } from "../herdr/protocol.js";
 import type { HerdrSnapshot, PaneSnapshot, ResolvedThemeSnapshot } from "../model.js";
-import type { Command, DeviceEvent, DeviceInfo, KeyAddress } from "./events.js";
+import { sameKey, type Command, type DeviceEvent, type DeviceInfo, type KeyAddress } from "./events.js";
 import { layoutForDeviceType } from "./geometry.js";
 
 /**
@@ -22,8 +22,8 @@ export type State = {
   snapshot: HerdrSnapshot | null;
   theme: ResolvedThemeSnapshot | null;
   devices: DeviceInfo[];
-  /** Keys currently held, as `deviceId:column,row`. */
-  pressed: string[];
+  /** Keys currently held. */
+  pressed: KeyAddress[];
   /** When a structural change was first seen, or null when nothing is pending. */
   resyncRequestedAt: number | null;
 };
@@ -66,8 +66,6 @@ const STRUCTURAL_EVENTS: ReadonlySet<string> = new Set([
   "layout_updated"
 ]);
 
-const keyId = ({ deviceId, column, row }: KeyAddress): string => `${deviceId}:${column},${row}`;
-
 /**
  * The whole product in one function: state plus one event in, new state and
  * anything to ask Herdr out. It is pure — no clocks, no sockets, no rendering —
@@ -108,28 +106,26 @@ export function reduce(state: State, event: DeviceEvent): Step {
           ...state,
           devices: state.devices.filter((device) => device.id !== event.deviceId),
           // A device that is gone can never report the release of a held key.
-          pressed: state.pressed.filter((held) => !held.startsWith(`${event.deviceId}:`))
+          pressed: state.pressed.filter((held) => held.deviceId !== event.deviceId)
         },
         commands: []
       };
 
     case "key-down": {
-      const id = keyId(event.key);
-      if (state.pressed.includes(id)) return { state, commands: [] };
-      return { state: { ...state, pressed: [...state.pressed, id] }, commands: [] };
+      if (state.pressed.some((held) => sameKey(held, event.key))) return { state, commands: [] };
+      return { state: { ...state, pressed: [...state.pressed, event.key] }, commands: [] };
     }
 
     case "key-up": {
-      const id = keyId(event.key);
-      if (!state.pressed.includes(id)) return { state, commands: [] };
-      return { state: { ...state, pressed: state.pressed.filter((held) => held !== id) }, commands: [] };
+      if (!state.pressed.some((held) => sameKey(held, event.key))) return { state, commands: [] };
+      return { state: { ...state, pressed: state.pressed.filter((held) => !sameKey(held, event.key)) }, commands: [] };
     }
 
-    case "dial-rotate":
-    case "dial-down":
-    case "dial-up":
-      // Accepted so the input path is proven end to end; nothing is bound to a
-      // dial until the channels exist.
+    case "encoder-rotate":
+    case "encoder-down":
+    case "encoder-up":
+      // Accepted so the input path is proven end to end; nothing is bound to an
+      // encoder until the channels exist.
       return { state, commands: [] };
   }
 }

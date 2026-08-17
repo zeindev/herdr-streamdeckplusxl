@@ -103,6 +103,14 @@ function collect(
   }
 }
 
+/**
+ * Compares faces field by field rather than by serialising them: faces are flat
+ * and this runs for every control on every tick, so key ordering must not be
+ * able to report an unchanged control as changed.
+ */
 function sameFace(left: object, right: object): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  const leftKeys = Object.keys(left) as Array<keyof typeof left>;
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) => left[key] === (right as typeof left)[key]);
 }

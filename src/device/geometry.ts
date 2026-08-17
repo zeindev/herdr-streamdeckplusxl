@@ -9,9 +9,6 @@
 /** Elgato `DeviceType` for the Stream Deck + XL. */
 export const DEVICE_TYPE_XL = 13;
 
-/** Workstreams visible at once, and therefore channels across the device (ADR-0009). */
-export const CHANNEL_COUNT = 3;
-
 export type DeviceLayout = {
   kind: "xl";
   columns: number;
@@ -49,27 +46,6 @@ export function keyCount(layout: DeviceLayout): number {
 }
 
 /** Keys are addressed left to right, top to bottom, as the Stream Deck SDK does. */
-export function keyIndex(layout: DeviceLayout, column: number, row: number): number {
-  return row * layout.columns + column;
-}
-
 export function keyAddress(layout: DeviceLayout, index: number): { column: number; row: number } {
   return { column: index % layout.columns, row: Math.floor(index / layout.columns) };
-}
-
-/** Which workstream owns this column. Channel order is left to right, always (ADR-0008). */
-export function channelOfColumn(layout: DeviceLayout, column: number): number {
-  return Math.floor(column / layout.columnsPerChannel);
-}
-
-/**
- * The bottom row of every channel is its own three control keys rather than
- * panes, and there is no rail shared across channels (ADR-0011).
- */
-export function isControlRow(layout: DeviceLayout, row: number): boolean {
-  return row === layout.rows - 1;
-}
-
-export function channelOfEncoder(layout: DeviceLayout, encoder: number): number {
-  return Math.floor(encoder / layout.encodersPerChannel);
 }

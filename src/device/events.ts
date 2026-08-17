@@ -6,6 +6,11 @@ export type KeyAddress = { deviceId: string; column: number; row: number };
 
 export type DeviceInfo = { id: string; type: number };
 
+/** True when two addresses name the same physical key. */
+export function sameKey(left: KeyAddress, right: KeyAddress): boolean {
+  return left.deviceId === right.deviceId && left.column === right.column && left.row === right.row;
+}
+
 /**
  * Everything that can move the device forward, from either direction: Herdr
  * pushing state, the user pressing something, hardware appearing, and time
@@ -21,9 +26,9 @@ export type DeviceEvent =
   | { kind: "theme-changed"; theme: ResolvedThemeSnapshot | null }
   | { kind: "key-down"; key: KeyAddress }
   | { kind: "key-up"; key: KeyAddress }
-  | { kind: "dial-rotate"; deviceId: string; dial: number; ticks: number }
-  | { kind: "dial-down"; deviceId: string; dial: number }
-  | { kind: "dial-up"; deviceId: string; dial: number }
+  | { kind: "encoder-rotate"; deviceId: string; encoder: number; ticks: number }
+  | { kind: "encoder-down"; deviceId: string; encoder: number }
+  | { kind: "encoder-up"; deviceId: string; encoder: number }
   /** A regular heartbeat. Drives anything time-based so the reducer stays pure. */
   | { kind: "tick"; at: number };
 

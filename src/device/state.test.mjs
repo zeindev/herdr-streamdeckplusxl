@@ -227,7 +227,7 @@ test("attaching the same device twice does not duplicate it", () => {
 test("a key press is tracked while held and released cleanly", () => {
   const key = { deviceId: "xl-1", column: 4, row: 2 };
   const down = run([xl, { kind: "key-down", key }]);
-  assert.equal(down.state.pressed.length, 1);
+  assert.deepEqual(down.state.pressed, [key]);
 
   const up = run([{ kind: "key-up", key }], down.state);
   assert.deepEqual(up.state.pressed, []);
@@ -244,12 +244,12 @@ test("unplugging a device forgets keys still held on it", () => {
   assert.deepEqual(state.pressed, [], "a detached device cannot report the release");
 });
 
-test("dial input is accepted without commands until something is bound to it", () => {
+test("encoder input is accepted without commands until something is bound to it", () => {
   const { state, commands } = run([
     xl,
-    { kind: "dial-rotate", deviceId: "xl-1", dial: 0, ticks: 3 },
-    { kind: "dial-down", deviceId: "xl-1", dial: 0 },
-    { kind: "dial-up", deviceId: "xl-1", dial: 0 }
+    { kind: "encoder-rotate", deviceId: "xl-1", encoder: 0, ticks: 3 },
+    { kind: "encoder-down", deviceId: "xl-1", encoder: 0 },
+    { kind: "encoder-up", deviceId: "xl-1", encoder: 0 }
   ]);
   assert.deepEqual(commands, []);
   assert.equal(state.devices.length, 1);

@@ -9,36 +9,72 @@
   "Icon": "imgs/plugin-icon",
   "CodePath": "bin/plugin.js",
   "SDKVersion": 3,
-  "Software": { "MinimumVersion": "7.1" },
+  "Software": {
+    "MinimumVersion": "7.1"
+  },
   "OS": [
-    { "Platform": "mac", "MinimumVersion": "13" },
-    { "Platform": "windows", "MinimumVersion": "10" }
+    {
+      "Platform": "mac",
+      "MinimumVersion": "13"
+    },
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
+    }
   ],
-  "Nodejs": { "Version": "24", "Debug": "enabled" },
+  "Nodejs": {
+    "Version": "24",
+    "Debug": "enabled"
+  },
   "UUID": "dev.herdr.streamdeck",
   "URL": "https://herdr.dev",
   "SupportURL": "https://github.com/herdrdev/herdr/issues",
+  "Profiles": [
+    {
+      "Name": "profiles/Herdr Stream Deck XL",
+      "DeviceType": 13,
+      "Readonly": false,
+      "DontAutoSwitchWhenInstalled": false,
+      "AutoInstall": true
+    }
+  ],
   "Actions": [
     {
       "Name": "Channel Key",
       "UUID": "dev.herdr.streamdeck.key",
       "Icon": "imgs/herdr",
       "Tooltip": "One position in a workstream channel. What it shows depends on where it sits.",
-      "Controllers": ["Keypad"],
+      "Controllers": [
+        "Keypad"
+      ],
       "UserTitleEnabled": false,
-      "States": [{ "Image": "imgs/key", "TitleAlignment": "middle" }]
+      "States": [
+        {
+          "Image": "imgs/key",
+          "TitleAlignment": "middle"
+        }
+      ]
     },
     {
       "Name": "Channel Encoder",
       "UUID": "dev.herdr.streamdeck.encoder",
       "Icon": "imgs/herdr",
       "Tooltip": "One workstream's dial and its touch-strip region.",
-      "Controllers": ["Encoder"],
+      "Controllers": [
+        "Encoder"
+      ],
       "Encoder": {
         "layout": "$A0",
-        "TriggerDescription": { "Rotate": "Navigate the workstream", "Push": "Act on the selection" }
+        "TriggerDescription": {
+          "Rotate": "Navigate the workstream",
+          "Push": "Act on the selection"
+        }
       },
-      "States": [{ "Image": "imgs/key" }]
+      "States": [
+        {
+          "Image": "imgs/key"
+        }
+      ]
     }
   ]
 }

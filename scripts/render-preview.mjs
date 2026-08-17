@@ -12,7 +12,7 @@ import { copiedHerdrTheme } from "../.preview/herdr-themes.js";
 import { DEVICE_TYPE_XL, XL_LAYOUT } from "../.preview/device/geometry.js";
 import { initialState, reduce } from "../.preview/device/state.js";
 import { surfaceOf } from "../.preview/device/surface.js";
-import { dialSvg, keySvg, stripRegionSvg } from "../.preview/render.js";
+import { encoderImage, keyImage } from "../.preview/device/paint.js";
 
 const KEY = 144;
 const GAP = 14;
@@ -69,15 +69,14 @@ function devicePreview(state, theme) {
     const row = Math.floor(index / XL_LAYOUT.columns);
     const x = GAP + column * (KEY + GAP);
     const y = GAP + row * (KEY + GAP);
-    const view = face.kind === "blank" ? { label: "", blank: true } : { label: face.label, detail: face.detail };
-    return place(keySvg(view, theme), x, y, KEY, KEY);
+    return place(keyImage(face, theme), x, y, KEY, KEY);
   });
 
   // The strip is one continuous composition drawn through its regions, so the
   // preview lays them edge to edge exactly as the hardware does.
   const stripX = (width - stripWidth) / 2;
   const strip = device.encoders.map((face, index) =>
-    place(stripRegionSvg(index, XL_LAYOUT.encoders, face, theme), stripX + index * 200, gridHeight + GAP, 200, STRIP_HEIGHT)
+    place(encoderImage(index, face, XL_LAYOUT, theme), stripX + index * 200, gridHeight + GAP, 200, STRIP_HEIGHT)
   );
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
@@ -93,6 +92,3 @@ function place(svg, x, y, width, height) {
   const viewBox = /viewBox="([^"]+)"/.exec(svg)?.[1] ?? `0 0 ${width} ${height}`;
   return `<svg x="${x}" y="${y}" width="${width}" height="${height}" viewBox="${viewBox}">${inner}</svg>`;
 }
-
-// Referenced so the dial renderer stays covered by the preview build.
-void dialSvg;

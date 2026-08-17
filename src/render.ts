@@ -77,24 +77,6 @@ export function keySvg(view: KeyView, theme?: ResolvedThemeSnapshot | null): str
   </svg>`;
 }
 
-export function dialSvg(
-  title: string,
-  value: string,
-  theme: ResolvedThemeSnapshot | null | undefined,
-  accentToken: keyof ResolvedThemeSnapshot["palette"] = "accent"
-): string {
-  const palette = theme?.palette;
-  const text = oledForeground(theme, "text");
-  const subtext = oledForeground(theme, "subtext");
-  const accent = palette ? oledColor(palette[accentToken], 3) : "#ffffff";
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100">
-    <rect width="200" height="100" fill="#000000"/>
-    <rect x="0" y="0" width="5" height="100" fill="${accent}"/>
-    <text x="18" y="32" ${monoFont} font-size="20" fill="${subtext}" letter-spacing=".2">${escapeXml(title.toUpperCase())}</text>
-    <text x="18" y="73" ${monoFont} font-size="28" fill="${text}">${escapeXml(truncate(value, 10))}</text>
-  </svg>`;
-}
-
 /**
  * Renders one 200px region of the strip.
  *
@@ -180,10 +162,6 @@ function statusAppearance(status: KeyView["status"], theme?: ResolvedThemeSnapsh
     case "unknown": return { color: palette ? oledColor(palette.overlay0) : "#9a9ca5", width: 3, dash: "10 8" };
     default: return null;
   }
-}
-
-export function currentPane(panes: PaneSnapshot[], paneId?: string): PaneSnapshot | undefined {
-  return panes.find((pane) => pane.pane_id === paneId);
 }
 
 function color(rgb: { r: number; g: number; b: number }): string {

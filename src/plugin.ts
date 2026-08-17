@@ -13,19 +13,12 @@ import streamDeck, {
 } from "@elgato/streamdeck";
 
 import type { Command, DeviceEvent } from "./device/events.js";
-import { layoutForDeviceType, XL_LAYOUT } from "./device/geometry.js";
+import { keyAddress, layoutForDeviceType, type DeviceLayout } from "./device/geometry.js";
 import { initialState, reduce, type State } from "./device/state.js";
-import {
-  changedControls,
-  surfaceOf,
-  type ControlChange,
-  type EncoderFace,
-  type KeyFace,
-  type Surface
-} from "./device/surface.js";
+import { changedControls, surfaceOf, type ControlChange, type EncoderFace, type KeyFace, type Surface } from "./device/surface.js";
+import { encoderImage, keyImage } from "./device/paint.js";
 import { HerdrClient } from "./herdr/client.js";
-import { hasResolvedTheme, snapshotFromApi, type HerdrSnapshot } from "./model.js";
-import { dialSvg, keySvg, stripRegionSvg } from "./render.js";
+import { hasResolvedTheme, snapshotFromResult } from "./model.js";
 import { copiedThemeFromHerdrConfig } from "./theme.js";
 
 /**
@@ -100,8 +93,7 @@ class Adapter {
   private async run(command: Command): Promise<void> {
     try {
       if (command.kind === "load-snapshot") {
-        const result = await this.herdr.request("session.snapshot");
-        const snapshot = snapshotFromApi({ result }) as HerdrSnapshot | undefined;
+        const snapshot = snapshotFromResult(await this.herdr.request("session.snapshot"));
         if (!snapshot) throw new Error("Herdr returned no usable snapshot");
         // Herdr owns colour, but its snapshot does not expose a resolved palette
         // yet, so until it does the theme comes from a copy of Herdr's config.
@@ -163,20 +155,30 @@ class Adapter {
   }
 
   private async draw(change: ControlChange): Promise<void> {
+    const layout = this.layoutOf(change.deviceId);
+    if (!layout) return;
+
     if (change.control === "key") {
-      const { column, row } = { column: change.index % XL_LAYOUT.columns, row: Math.floor(change.index / XL_LAYOUT.columns) };
+      const { column, row } = keyAddress(layout, change.index);
       const instance = this.keys.get(`${change.deviceId}:${column},${row}`);
-      if (!instance) return; // Not on the active profile page.
-      await instance.setImage(dataUri(keySvg(keyView(change.face as KeyFace), this.state.theme)));
+      if (!instance) return; // Not placed on the active profile page.
+      await instance.setImage(dataUri(keyImage(change.face as KeyFace, this.state.theme)));
       return;
     }
+
     const instance = this.encoders.get(`${change.deviceId}:${change.index}`);
     if (!instance) return;
-    const face = change.face as EncoderFace;
+    // An encoder's touch-strip region is drawn through the layout feedback.
+    // `setImage` on a dial sets its icon inside the Stream Deck app, not on the
+    // hardware, so it is deliberately not used here.
     await instance.setFeedback({
-      "full-canvas": dataUri(stripRegionSvg(change.index, XL_LAYOUT.encoders, face, this.state.theme))
+      "full-canvas": dataUri(encoderImage(change.index, change.face as EncoderFace, layout, this.state.theme))
     });
-    await instance.setImage(dataUri(dialSvg(face.title, face.value, this.state.theme)));
+  }
+
+  private layoutOf(deviceId: string): DeviceLayout | null {
+    const device = this.state.devices.find((candidate) => candidate.id === deviceId);
+    return device ? layoutForDeviceType(device.type) : null;
   }
 }
 
@@ -184,10 +186,6 @@ const adapter = new Adapter();
 
 function dataUri(svg: string): string {
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
-}
-
-function keyView(face: KeyFace): Parameters<typeof keySvg>[0] {
-  return face.kind === "blank" ? { label: "", blank: true } : { label: face.label, detail: face.detail };
 }
 
 /** Coordinates come from the action instance; multi-action payloads carry none. */
@@ -248,9 +246,9 @@ class ChannelEncoder extends SingletonAction {
     const index = event.action.coordinates?.column;
     if (index === undefined) return;
     adapter.dispatch({
-      kind: "dial-rotate",
+      kind: "encoder-rotate",
       deviceId: String(event.action.device.id),
-      dial: index,
+      encoder: index,
       ticks: event.payload.ticks
     });
   }
@@ -258,13 +256,13 @@ class ChannelEncoder extends SingletonAction {
   override onDialDown(event: DialDownEvent): void {
     const index = event.action.coordinates?.column;
     if (index === undefined) return;
-    adapter.dispatch({ kind: "dial-down", deviceId: String(event.action.device.id), dial: index });
+    adapter.dispatch({ kind: "encoder-down", deviceId: String(event.action.device.id), encoder: index });
   }
 
   override onDialUp(event: DialUpEvent): void {
     const index = event.action.coordinates?.column;
     if (index === undefined) return;
-    adapter.dispatch({ kind: "dial-up", deviceId: String(event.action.device.id), dial: index });
+    adapter.dispatch({ kind: "encoder-up", deviceId: String(event.action.device.id), encoder: index });
   }
 }
 

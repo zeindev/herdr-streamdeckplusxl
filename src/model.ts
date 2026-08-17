@@ -64,6 +64,12 @@ export type HerdrSnapshot = {
   theme?: ThemeSnapshot;
 };
 
+/**
+ * How a pane is named on the device. Kept with `paneLabel` and `paneIdentity`
+ * below: nothing calls them yet, but they encode the fallback order (label,
+ * then terminal title, then the working directory's basename) that the ticket
+ * placing panes on keys depends on, and which would be re-derived worse.
+ */
 export type PaneIdentity = { primary: string; context?: string };
 
 /** How the working-state animation is drawn on a key. */
@@ -71,15 +77,12 @@ export type WorkingMotion = "darken" | "lighten" | "rainbow";
 export const MOTION_BASE_WIDTH = 1.4;
 
 /**
- * Unwraps Herdr's `session.snapshot` reply, which nests the snapshot inside
- * `result`. Returns undefined rather than throwing when the shape is not what
+ * Reads the snapshot out of a `session.snapshot` result, which nests it under
+ * `snapshot`. Returns undefined rather than throwing when the shape is not what
  * this protocol version expects.
  */
-export function snapshotFromApi(value: unknown): HerdrSnapshot | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const result = (value as { result?: unknown }).result;
-  if (!result || typeof result !== "object") return undefined;
-  const candidate = (result as { snapshot?: unknown }).snapshot ?? result;
+export function snapshotFromResult(result: Record<string, unknown>): HerdrSnapshot | undefined {
+  const candidate = result.snapshot ?? result;
   if (!candidate || typeof candidate !== "object" || !Array.isArray((candidate as HerdrSnapshot).panes)) return undefined;
   return candidate as HerdrSnapshot;
 }

@@ -160,7 +160,12 @@ export class HerdrClient {
         this.requestTimeoutMs
       );
 
-      socket.on("connect", () => this.write(socket, { id: "1", method, params }, () => {}));
+      const id = `sd-${++this.nextRequestId}`;
+      socket.on("connect", () =>
+        this.write(socket, { id, method, params }, (error) => {
+          if (error) finish(() => reject(error));
+        })
+      );
       socket.on("data", (chunk: Buffer) => {
         for (const line of decoder.push(chunk.toString())) {
           const message = decodeMessage(line);

@@ -7,9 +7,23 @@ import {
   sameAcknowledged,
   type Acknowledged
 } from "./attention.js";
+import {
+  ACTIONS_COLUMN,
+  CONTINUE_PROMPT,
+  FOCUS_COLUMN,
+  GIT_COLUMN,
+  acknowledge as acknowledgeControl,
+  arm,
+  armedElsewhere,
+  dueArmTimeout,
+  isArmedFor,
+  liveAcknowledgements,
+  type ArmedAction,
+  type ControlOutcome
+} from "./control.js";
 import { sameKey, type Command, type DeviceEvent, type DeviceInfo, type KeyAddress } from "./events.js";
 import { channelOfColumn, columnInChannel, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
-import { channelRows, type PaneCell } from "./panes.js";
+import { agentPaneOf, channelRows, type PaneCell } from "./panes.js";
 import {
   commandKeyOf,
   commandLineOf,
@@ -73,6 +87,10 @@ export type State = {
   pressed: PressedKey[];
   /** When a structural change was first seen, or null when nothing is pending. */
   resyncRequestedAt: number | null;
+  /** The one actions key currently armed for a destructive interrupt, if any. */
+  armed: ArmedAction | null;
+  /** What each control key most recently showed about its own last press. */
+  controlAcknowledgements: readonly ControlOutcome[];
 };
 
 /** A key being held, and since when, so a hold can be told from a tap. */
@@ -92,7 +110,9 @@ export function initialState(): State {
     roles: {},
     acknowledged: [],
     pressed: [],
-    resyncRequestedAt: null
+    resyncRequestedAt: null,
+    armed: null,
+    controlAcknowledgements: []
   };
 }
 
@@ -215,16 +235,30 @@ export function reduce(state: State, event: DeviceEvent): Step {
       return applyHerdrEvent(state, event.event, event.at);
 
     case "tick": {
-      // A hold and a due resync are independent, so one firing must never delay
-      // the other by a whole beat.
+      // A hold, a due resync, an expired arm and an expired acknowledgement are
+      // all independent, so one firing must never delay another by a whole beat.
       const held = heldLongEnough(state, event.at);
-      const hold = held ? applyHold(state, held) : { state, commands: [] };
+      const hold = held ? applyHold(state, held, event.at) : { state, commands: [] };
       const resync = dueResync(hold.state, event.at);
-      return { state: resync.state, commands: [...hold.commands, ...resync.commands] };
+      const armed = dueArmTimeout(resync.state.armed, event.at) ? null : resync.state.armed;
+      const controlAcknowledgements = liveAcknowledgements(resync.state.controlAcknowledgements, event.at);
+      return {
+        state: { ...resync.state, armed, controlAcknowledgements },
+        commands: [...hold.commands, ...resync.commands]
+      };
     }
 
     case "theme-changed":
       return { state: { ...state, theme: event.theme }, commands: [] };
+
+    case "control-acknowledged": {
+      const controlAcknowledgements = acknowledgeControl(
+        state.controlAcknowledgements,
+        { workspaceId: event.workspaceId, column: event.column, ok: event.ok, message: event.message },
+        event.at
+      );
+      return { state: { ...state, controlAcknowledgements }, commands: [] };
+    }
 
     case "device-attached": {
       if (!layoutForDeviceType(event.device.type)) return { state, commands: [] };
@@ -244,29 +278,42 @@ export function reduce(state: State, event: DeviceEvent): Step {
       };
 
     case "key-down": {
-      if (state.pressed.some((held) => sameKey(held.key, event.key))) return { state, commands: [] };
-      return { state: { ...state, pressed: [...state.pressed, { key: event.key, at: event.at }] }, commands: [] };
+      // DESIGN.md's Latest Action Rule: the most recent physical press wins, so
+      // pressing anything other than the armed actions key itself cancels a
+      // pending arm rather than leaving it live for a confirmation the
+      // developer was not reaching for.
+      const armed = armedElsewhere(state.armed, controlCellAt(state, event.key)) ? null : state.armed;
+      if (state.pressed.some((held) => sameKey(held.key, event.key))) {
+        return armed === state.armed ? { state, commands: [] } : { state: { ...state, armed }, commands: [] };
+      }
+      return { state: { ...state, armed, pressed: [...state.pressed, { key: event.key, at: event.at }] }, commands: [] };
     }
 
     case "key-up": {
       if (!state.pressed.some((held) => sameKey(held.key, event.key))) return { state, commands: [] };
       const pressed = state.pressed.filter((held) => !sameKey(held.key, event.key));
       // A hold has already fired and taken its press with it, so anything still
-      // held here was a tap. A tap on a pane focuses it in Herdr.
+      // held here was a tap.
       const cell = cellAt(state, event.key);
-      if (cell?.kind !== "pane") return { state: { ...state, pressed }, commands: [] };
+      if (cell?.kind === "pane") {
+        // Going to look at finished work is what acknowledges it, so the same
+        // tap does both. Anything else would be a second gesture for something
+        // the first one already accomplishes.
+        const acknowledged = acknowledges(cell.pane, state.snapshot)
+          ? acknowledge(state.acknowledged, cell.pane.pane_id)
+          : state.acknowledged;
+        return {
+          state: { ...state, pressed, acknowledged },
+          commands: [
+            { kind: "herdr-request", method: "pane.focus", params: { pane_id: cell.pane.pane_id } },
+            ...savedIfAcknowledgedChanged(state.acknowledged, acknowledged)
+          ]
+        };
+      }
 
-      // Going to look at finished work is what acknowledges it, so the same tap
-      // does both. Anything else would be a second gesture for something the
-      // first one already accomplishes.
-      const acknowledged = acknowledges(cell.pane) ? acknowledge(state.acknowledged, cell.pane.pane_id) : state.acknowledged;
-      return {
-        state: { ...state, pressed, acknowledged },
-        commands: [
-          { kind: "herdr-request", method: "pane.focus", params: { pane_id: cell.pane.pane_id } },
-          ...savedIfAcknowledgedChanged(state.acknowledged, acknowledged)
-        ]
-      };
+      const control = controlCellAt(state, event.key);
+      if (control) return applyControlTap({ ...state, pressed }, control, event.at);
+      return { state: { ...state, pressed }, commands: [] };
     }
 
     case "encoder-touch": {
@@ -349,28 +396,113 @@ function heldLongEnough(state: State, at: number): PressedKey | null {
 }
 
 /**
- * What holding a pane key does: correct what the device thinks that pane is for,
- * one role at a time, wrapping.
- *
- * The correction is remembered against the pane's command line rather than the
- * pane, so it outlives the pane being restarted — a dev server that crashed and
- * came back is the same job in a new pane. A pane whose command line is not
- * known yet cannot be corrected, because there would be nothing to remember it
- * by, and a correction that quietly forgot itself would be worse than none.
- *
- * The hold is spent whether or not it changed anything, so it fires once rather
- * than on every tick while the key stays down.
+ * What holding a key does: correct a pane's role one step at a time, or arm
+ * the channel's actions key for its destructive interrupt. Whichever it is,
+ * the hold is spent whether or not it changed anything, so it fires once
+ * rather than on every tick while the key stays down.
  */
-function applyHold(state: State, held: PressedKey): Step {
+function applyHold(state: State, held: PressedKey, at: number): Step {
   const spent = { ...state, pressed: state.pressed.filter((candidate) => candidate !== held) };
   const cell = cellAt(state, held.key);
-  if (cell?.kind !== "pane") return { state: spent, commands: [] };
+  if (cell?.kind === "pane") {
+    const key = commandKeyOf(state.processes[cell.pane.pane_id] ?? undefined);
+    if (!key) return { state: spent, commands: [] };
+    const roles = { ...state.roles, [key]: nextRole(cell.role) };
+    return { state: { ...spent, roles }, commands: [{ kind: "save-roles", roles }] };
+  }
 
-  const key = commandKeyOf(state.processes[cell.pane.pane_id] ?? undefined);
-  if (!key) return { state: spent, commands: [] };
+  const control = controlCellAt(state, held.key);
+  // Only the actions key has anything a hold can do. Holding focus or the
+  // git/pull-request key is a no-op, the same as holding a key nothing else
+  // is placed on — those verbs have nothing to escalate to.
+  if (!control || control.column !== ACTIONS_COLUMN) return { state: spent, commands: [] };
+  return { state: { ...spent, armed: arm(control.workspaceId, at) }, commands: [] };
+}
 
-  const roles = { ...state.roles, [key]: nextRole(cell.role) };
-  return { state: { ...spent, roles }, commands: [{ kind: "save-roles", roles }] };
+/**
+ * The control row is the last row of every channel; this resolves a press to
+ * which channel's workstream and which of the three fixed verbs it landed on.
+ *
+ * Derived the same way `surfaceOf` derives it, from the same inputs, so a
+ * press can never act on a different workstream than the one the developer is
+ * looking at (ADR-0011, ADR-0012).
+ */
+function controlCellAt(state: State, key: KeyAddress): { workspaceId: string; column: number } | null {
+  const layout = layoutOf(state, key.deviceId);
+  if (!layout || key.row !== layout.rows - 1) return null;
+  const channel = channelOfColumn(layout, key.column);
+  const workstream = channelWorkstreams(state.slots, presentWorkstreams(state))[channel];
+  return workstream ? { workspaceId: workstream.workspaceId, column: columnInChannel(layout, key.column) } : null;
+}
+
+/**
+ * What tapping one of the control row's three keys does.
+ *
+ * `pressed` has already had this press removed by the caller; every branch
+ * here only decides what else changes and what, if anything, Herdr is asked.
+ */
+function applyControlTap(state: State, control: { workspaceId: string; column: number }, at: number): Step {
+  if (control.column === FOCUS_COLUMN) {
+    return {
+      state,
+      commands: [
+        {
+          kind: "control-command",
+          workspaceId: control.workspaceId,
+          column: FOCUS_COLUMN,
+          method: "workspace.focus",
+          params: { workspace_id: control.workspaceId },
+          successMessage: "FOCUSED"
+        }
+      ]
+    };
+  }
+
+  if (control.column === GIT_COLUMN) {
+    // Nothing in the snapshot carries pull-request state yet — that is -5ot
+    // and -7bl, both open — so this key has nothing to open and says so
+    // rather than pretending to be a shortcut to somewhere it cannot reach.
+    return { state: locallyAcknowledged(state, control, false, "NO PR YET", at), commands: [] };
+  }
+
+  // ACTIONS_COLUMN. An armed key confirms the interrupt; an unarmed one sends
+  // the fixed prompt. Both need the same pane, so they share the lookup.
+  const pane = agentPaneOf(control.workspaceId, state.snapshot?.panes ?? []);
+  if (isArmedFor(state.armed, control.workspaceId, control.column, at)) {
+    const disarmed = { ...state, armed: null };
+    if (!pane) return { state: locallyAcknowledged(disarmed, control, false, "NO AGENT", at), commands: [] };
+    return {
+      state: disarmed,
+      commands: [
+        {
+          kind: "control-command",
+          workspaceId: control.workspaceId,
+          column: control.column,
+          method: "pane.send_keys",
+          params: { pane_id: pane.pane_id, keys: ["C-c"] },
+          successMessage: "STOPPED"
+        }
+      ]
+    };
+  }
+
+  if (!pane) return { state: locallyAcknowledged(state, control, false, "NO AGENT", at), commands: [] };
+  return {
+    state,
+    commands: [{ kind: "control-prompt", workspaceId: control.workspaceId, column: control.column, paneId: pane.pane_id, text: CONTINUE_PROMPT }]
+  };
+}
+
+/** Records an outcome the reducer already knows, with no round trip to Herdr. */
+function locallyAcknowledged(state: State, control: { workspaceId: string; column: number }, ok: boolean, message: string, at: number): State {
+  return {
+    ...state,
+    controlAcknowledgements: acknowledgeControl(
+      state.controlAcknowledgements,
+      { workspaceId: control.workspaceId, column: control.column, ok, message },
+      at
+    )
+  };
 }
 
 /** The layout of an attached device, or null when it is not one we drive. */

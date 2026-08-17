@@ -15,6 +15,8 @@ import type { EncoderFace, KeyFace } from "./surface.js";
  */
 const ATTENTION_WORDS: Record<AttentionReason, string> = {
   waiting: "NEEDS YOU",
+  question: "QUESTION",
+  approval: "APPROVAL",
   finished: "FINISHED",
   exited: "EXITED"
 };
@@ -69,7 +71,12 @@ function keyView(face: KeyFace): Parameters<typeof keySvg>[0] {
         ...(face.attention === "exited" ? { danger: true } : {})
       };
     case "text":
-      return { label: face.label, detail: face.detail };
+      return {
+        label: face.label,
+        detail: face.detail,
+        ...(face.danger ? { danger: true } : {}),
+        ...(face.feedback ? { feedback: face.feedback } : {})
+      };
   }
 }
 

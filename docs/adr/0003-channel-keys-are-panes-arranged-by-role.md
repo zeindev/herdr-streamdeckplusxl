@@ -32,7 +32,7 @@ The staged deviation recorded here is over: the header row is gone and all three
 - The **aggregate agent state** is genuinely redundant now and was deleted rather than moved. Every agent in a channel has a key of its own showing its own status, so a summary of them adds nothing a glance does not already give.
 - The **branch** identifies a channel, from the strip, which is what this decision always wanted.
 - A workstream with **no worktree** has no branch, so the strip shows its **label** instead. Without that it would have had no identity anywhere at all.
-- The **repository name** is shown nowhere. That is the real loss: three channels on three checkouts of one monorepo are now told apart only by branch. ADR-0011's control row is its home and `-5o6` owns it; a bead records this so it is not quietly forgotten.
+- The **repository name** is on the control row's Git and pull-request key (`-5o6`, ADR-0012), which is its home per ADR-0011. A monorepo's three channels are told apart by name as well as branch again. This closes bead `-0vd.2`.
 
 Three claims above were wrong about `pane.process_info`, and each was found by calling it on a running Herdr rather than reading the schema. Two of them would have broken detection on the case that matters most.
 

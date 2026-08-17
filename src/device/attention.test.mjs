@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DECLARED_ATTENTION_PREFIX,
   EXIT_TOKEN_PREFIX,
   acknowledge,
   acknowledges,
@@ -42,6 +43,17 @@ function workspaceWith(tokens, workspace_id = "w1") {
 
 const reasons = (items) => items.map((item) => item.reason);
 
+/** The number Herdr gives a pane within its workspace: "w1:p2" is "p2". */
+const localNumber = (paneId) => paneId.slice(paneId.lastIndexOf(":") + 1);
+
+/** A declared-attention token, in the shape `scripts/herdr-attention` writes. */
+const declared = (kind, paneId) => `${kind} ${paneId}`;
+
+/** A workspace whose pane declared something about itself. */
+function workspaceWithDeclared(paneId, kind, workspace_id = "w1") {
+  return workspaceWith({ [`${DECLARED_ATTENTION_PREFIX}${localNumber(paneId)}`]: declared(kind, paneId) }, workspace_id);
+}
+
 test("nothing is asking before Herdr has said anything", () => {
   assert.deepEqual(attentionOf(null), []);
   assert.deepEqual(attentionOf({ panes: [] }), []);
@@ -70,6 +82,104 @@ test("a pane with no agent never reports a state, whatever Herdr says its status
   // A service saying `blocked` is Herdr's default, not a claim about the pane.
   const panes = [{ ...service("w1:p1"), agent_status: "blocked" }, { ...service("w1:p2"), agent_status: "done" }];
   assert.deepEqual(attentionOf({ panes }), []);
+});
+
+test("each declared kind is distinguishable on the device", () => {
+  for (const kind of ["question", "approval", "finished"]) {
+    const panes = [agent("w1:p1", "working")];
+    const workspaces = [workspaceWithDeclared("w1:p1", kind)];
+    assert.deepEqual(attentionOf({ panes, workspaces }), [{ workspaceId: "w1", reason: kind, paneId: "w1:p1" }]);
+  }
+});
+
+test("a declared question or approval resolves the moment the token is gone, with no acknowledgement needed", () => {
+  // Mirrors how native `waiting` resolves: nothing is tapped, the fact just
+  // stops being true. Only `finished` needs a tap, whichever side declared it.
+  for (const kind of ["question", "approval"]) {
+    const panes = [agent("w1:p1", "working")];
+    const asking = { panes, workspaces: [workspaceWithDeclared("w1:p1", kind)] };
+    const resolved = { panes, workspaces: [workspaceWith(undefined)] };
+    assert.deepEqual(reasons(attentionOf(asking)), [kind]);
+    assert.deepEqual(attentionOf(resolved), [], `${kind} must not linger once cleared`);
+  }
+});
+
+test("a declared finish is asking until acknowledged, exactly like a native one", () => {
+  const panes = [agent("w1:p1", "working")];
+  const workspaces = [workspaceWithDeclared("w1:p1", "finished")];
+  assert.deepEqual(reasons(attentionOf({ panes, workspaces })), ["finished"]);
+  assert.deepEqual(attentionOf({ panes, workspaces }, ["w1:p1"]), [], "acknowledged work stops asking, declared or not");
+});
+
+test("a declared reason wins over Herdr's native status for the same pane, whatever the native status says", () => {
+  // ADR-0005: declared is more specific, so it wins unconditionally rather than
+  // the two being merged or the native one taking precedence.
+  for (const status of ["blocked", "done", "working", "idle", "unknown"]) {
+    const panes = [agent("w1:p1", status)];
+    const workspaces = [workspaceWithDeclared("w1:p1", "question")];
+    assert.deepEqual(reasons(attentionOf({ panes, workspaces })), ["question"], `native ${status} must not win`);
+  }
+});
+
+test("native waiting still applies once nothing valid is declared for that pane", () => {
+  const panes = [agent("w1:p1", "blocked")];
+  const workspaces = [workspaceWith({ sd_attn_p1: "garbage" }, "w1")];
+  assert.deepEqual(reasons(attentionOf({ panes, workspaces })), ["waiting"]);
+});
+
+test("an unrecognised declared kind is not believed, and the native floor applies instead", () => {
+  const panes = [agent("w1:p1", "blocked")];
+  const workspaces = [workspaceWith({ sd_attn_p1: "urgent w1:p1" }, "w1")];
+  assert.deepEqual(reasons(attentionOf({ panes, workspaces })), ["waiting"], "not one of the three declared kinds");
+});
+
+test("a declaration naming a different pane than the one it sits under is not believed", () => {
+  // The same defence EXIT_TOKEN_PREFIX needed after a leaked HERDR_PANE_ID
+  // stamped one agent's key with another's declaration (ADR-0005).
+  const panes = [agent("w1:p1", "working"), agent("w1:p2", "blocked")];
+  const workspaces = [workspaceWith({ sd_attn_p1: "question w1:p2" }, "w1")];
+  const items = attentionOf({ panes, workspaces });
+  assert.deepEqual(reasons(items.filter((item) => item.paneId === "w1:p1")), []);
+  assert.deepEqual(reasons(items.filter((item) => item.paneId === "w1:p2")), ["waiting"], "native status is untouched");
+});
+
+test("a pane running no agent is never given a declared reason either", () => {
+  const panes = [service("w1:p1")];
+  const workspaces = [workspaceWithDeclared("w1:p1", "question")];
+  assert.deepEqual(attentionOf({ panes, workspaces }), []);
+});
+
+test("two agents in one workstream keep two independent declarations", () => {
+  const panes = [agent("w1:p1", "working"), agent("w1:p2", "working")];
+  const workspaces = [
+    workspaceWith(
+      { sd_attn_p1: declared("question", "w1:p1"), sd_attn_p2: declared("approval", "w1:p2") },
+      "w1"
+    )
+  ];
+  const items = attentionOf({ panes, workspaces });
+  assert.deepEqual(
+    items.map((item) => [item.paneId, item.reason]).sort(),
+    [
+      ["w1:p1", "question"],
+      ["w1:p2", "approval"]
+    ]
+  );
+});
+
+test("a mixed declared-plus-native workstream reports both correctly", () => {
+  // One pane declares, one relies on the native floor, one is finished and
+  // already looked at — all in the same snapshot.
+  const panes = [agent("w1:p1", "working"), agent("w1:p2", "blocked"), agent("w1:p3", "done")];
+  const workspaces = [workspaceWithDeclared("w1:p1", "approval")];
+  const items = attentionOf({ panes, workspaces }, ["w1:p3"]);
+  assert.deepEqual(
+    items.map((item) => [item.paneId, item.reason]).sort(),
+    [
+      ["w1:p1", "approval"],
+      ["w1:p2", "waiting"]
+    ]
+  );
 });
 
 test("a declared bad exit is asking, and names the service", () => {
@@ -242,10 +352,27 @@ test("a pane waiting and finished at once is one thing, not two", () => {
 });
 
 test("only a finished agent can be acknowledged", () => {
-  assert.equal(acknowledges(agent("w1:p1", "done")), true);
-  assert.equal(acknowledges(agent("w1:p1", "blocked")), false);
-  assert.equal(acknowledges({ ...service("w1:p1"), agent_status: "done" }), false);
-  assert.equal(acknowledges(undefined), false);
+  assert.equal(acknowledges(agent("w1:p1", "done"), null), true);
+  assert.equal(acknowledges(agent("w1:p1", "blocked"), null), false);
+  assert.equal(acknowledges({ ...service("w1:p1"), agent_status: "done" }, null), false);
+  assert.equal(acknowledges(undefined, null), false);
+});
+
+test("a declared finish can be acknowledged even when Herdr's own status disagrees", () => {
+  // The Stop hook is what makes `finished` show up promptly; Herdr's own
+  // detection may not have caught up yet, or may never (that gap is the whole
+  // reason -97u exists). Acknowledging must not depend on which side said it.
+  const pane = agent("w1:p1", "working");
+  const snapshot = { panes: [pane], workspaces: [workspaceWithDeclared("w1:p1", "finished")] };
+  assert.equal(acknowledges(pane, snapshot), true);
+});
+
+test("a declared question or approval is never itself acknowledgeable", () => {
+  for (const kind of ["question", "approval"]) {
+    const pane = agent("w1:p1", "working");
+    const snapshot = { panes: [pane], workspaces: [workspaceWithDeclared("w1:p1", kind)] };
+    assert.equal(acknowledges(pane, snapshot), false, `${kind} must not be acknowledgeable`);
+  }
 });
 
 test("acknowledging twice is acknowledging once", () => {

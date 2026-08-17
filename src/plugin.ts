@@ -162,9 +162,38 @@ class Adapter {
         await this.saveSettings(storedAcknowledged(command.acknowledged));
         return;
       }
+      // The control row's two verbs that talk to Herdr: both acknowledge on
+      // the key that fired them, success or failure, which is why they carry
+      // their own try/catch rather than falling into the generic one below —
+      // that one only logs, and a control key needs the outcome back on the
+      // device (ADR-0012).
+      if (command.kind === "control-command") {
+        await this.acknowledging(command.workspaceId, command.column, command.successMessage, () =>
+          this.herdr.request(command.method, command.params)
+        );
+        return;
+      }
+      if (command.kind === "control-prompt") {
+        await this.acknowledging(command.workspaceId, command.column, "SENT", async () => {
+          await this.herdr.request("pane.send_text", { pane_id: command.paneId, text: command.text });
+          await this.herdr.request("pane.send_keys", { pane_id: command.paneId, keys: ["Return"] });
+        });
+        return;
+      }
       await this.herdr.request(command.method, command.params);
     } catch (error) {
       streamDeck.logger.error(`Command ${command.kind} failed: ${(error as Error).message}`);
+    }
+  }
+
+  /** Runs one control-row verb and dispatches its outcome back onto the key that fired it. */
+  private async acknowledging(workspaceId: string, column: number, successMessage: string, act: () => Promise<unknown>): Promise<void> {
+    const at = Date.now();
+    try {
+      await act();
+      this.dispatch({ kind: "control-acknowledged", workspaceId, column, ok: true, message: successMessage, at });
+    } catch (error) {
+      this.dispatch({ kind: "control-acknowledged", workspaceId, column, ok: false, message: (error as Error).message, at });
     }
   }
 

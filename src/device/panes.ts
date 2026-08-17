@@ -91,6 +91,17 @@ export function paneKeyLabel(pane: PaneSnapshot, process: PaneProcess | undefine
   return directoryOf(pane.cwd) || pane.pane_id;
 }
 
+/**
+ * A workstream's own agent pane — the same one its channel's agent row shows
+ * first, so the actions key's prompt and interrupt never target a different
+ * pane than the one on row 0.
+ */
+export function agentPaneOf(workspaceId: string, panes: readonly PaneSnapshot[]): PaneSnapshot | undefined {
+  return panes
+    .filter((pane) => pane.workspace_id === workspaceId && pane.agent)
+    .sort((left, right) => left.pane_id.localeCompare(right.pane_id))[0];
+}
+
 function directoryOf(cwd: string | undefined): string {
   return cwd?.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
 }

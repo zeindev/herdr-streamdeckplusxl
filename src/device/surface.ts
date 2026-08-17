@@ -1,5 +1,6 @@
 import type { AgentStatus, PaneSnapshot } from "../model.js";
 import { attentionByPane, attentionIn, attentionOf, type AttentionItem, type AttentionReason } from "./attention.js";
+import { ACTIONS_COLUMN, FOCUS_COLUMN, GIT_COLUMN, acknowledgementFor } from "./control.js";
 import { CHANNEL_COUNT, channelKeyIndex, keyCount, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
 import type { PaneCell } from "./panes.js";
 import { paneKeyLabel } from "./panes.js";
@@ -19,7 +20,14 @@ import { workstreamsOf, type Workstream } from "./workstream.js";
  */
 export type KeyFace =
   | { kind: "blank" }
-  | { kind: "text"; label: string; detail?: string }
+  /**
+   * One of the control row's three fixed keys (ADR-0011, ADR-0012). `danger`
+   * is the armed destructive state; `feedback: "success"` is a brief green
+   * acknowledgement of a command that worked. A failed or refused one is
+   * carried as `danger` with the cause in `detail`, the same visual language
+   * `attention`'s `exited` already uses for "something here is simply wrong".
+   */
+  | { kind: "text"; label: string; detail?: string; danger?: boolean; feedback?: "success" }
   /**
    * A pane, named, with the role that put it on this row and — only when it runs
    * an agent — that agent's live state.
@@ -76,7 +84,7 @@ export type Surface = { devices: DeviceSurface[] };
 const BLANK: KeyFace = { kind: "blank" };
 
 /** Which reason a `more` key reports when it hides several. Most urgent first. */
-const MORE_ATTENTION_ORDER: readonly AttentionReason[] = ["waiting", "exited", "finished"];
+const MORE_ATTENTION_ORDER: readonly AttentionReason[] = ["waiting", "question", "approval", "exited", "finished"];
 const EMPTY_BLOCK: StripBlock = { branch: null, readings: [], notice: null };
 
 /**
@@ -118,7 +126,8 @@ function keysOf(
 ): KeyFace[] {
   const keys = Array.from({ length: keyCount(layout) }, () => BLANK);
   for (let channel = 0; channel < CHANNEL_COUNT; channel++) {
-    if (!workstreams[channel]) {
+    const workstream = workstreams[channel];
+    if (!workstream) {
       // Nothing to show and something to offer, so the channel's first key asks
       // for a worktree rather than leaving three columns of unexplained black.
       keys[channelKeyIndex(layout, channel, 0, 0)] = { kind: "empty", slot: channel };
@@ -129,8 +138,49 @@ function keysOf(
         if (cell) keys[channelKeyIndex(layout, channel, column, rowIndex)] = paneFace(cell, state.processes, attention);
       })
     );
+    const controlRow = layout.rows - 1;
+    for (let column = 0; column < layout.columnsPerChannel; column++) {
+      keys[channelKeyIndex(layout, channel, column, controlRow)] = controlFace(column, workstream, state);
+    }
   }
   return keys;
+}
+
+/**
+ * One of the control row's three fixed keys (ADR-0011, ADR-0012).
+ *
+ * A live acknowledgement always wins over the idle face — it is the most
+ * recent thing this key did, and the developer pressed it to find out. Only
+ * the actions key has an armed state to show beneath that, since focus and
+ * git/pull-request have nothing to escalate to.
+ */
+function controlFace(column: number, workstream: Workstream, state: State): KeyFace {
+  const ack = acknowledgementFor(state.controlAcknowledgements, workstream.workspaceId, column);
+  if (ack) {
+    return {
+      kind: "text",
+      label: controlLabel(column, workstream),
+      detail: ack.message,
+      ...(ack.ok ? { feedback: "success" as const } : { danger: true })
+    };
+  }
+  if (column === ACTIONS_COLUMN && state.armed?.workspaceId === workstream.workspaceId) {
+    return { kind: "text", label: "STOP AGAIN", danger: true };
+  }
+  return { kind: "text", label: controlLabel(column, workstream), ...(column === GIT_COLUMN ? { detail: "GIT" } : {}) };
+}
+
+/**
+ * What each control key is called, idle. The git/pull-request key alone
+ * carries the workstream's own identity rather than its own verb name — this
+ * is where `-0vd.2` put the repository name once panes took row 0, since a
+ * checkout with no branch still names itself by label the same way a channel
+ * with no worktree does everywhere else on this device (ADR-0003).
+ */
+function controlLabel(column: number, workstream: Workstream): string {
+  if (column === FOCUS_COLUMN) return "FOCUS";
+  if (column === GIT_COLUMN) return workstream.worktree?.repoName || workstream.label;
+  return "PROMPT";
 }
 
 function paneFace(

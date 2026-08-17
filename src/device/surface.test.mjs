@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { CHANNEL_COUNT, DEVICE_TYPE_XL, XL_LAYOUT, channelKeyIndex } from "../../.preview/device/geometry.js";
 import { readSlots } from "../../.preview/device/slots.js";
-import { initialState, reduce } from "../../.preview/device/state.js";
+import { HOLD_MS, initialState, reduce } from "../../.preview/device/state.js";
 import { changedControls, surfaceOf } from "../../.preview/device/surface.js";
 import { recordedWorkspace, recordedWorktree } from "../herdr/fixtures/recorded.mjs";
 
@@ -147,7 +147,11 @@ test("a channel's rows are its roles, top to bottom", () => {
   assert.equal(rowOf(device, 0, 0)[0].role, "agent");
   assert.deepEqual(rowOf(device, 0, 1), [BLANK, BLANK, BLANK], "no server is running");
   assert.equal(rowOf(device, 0, 2)[0].role, "shell");
-  assert.deepEqual(rowOf(device, 0, 3), [BLANK, BLANK, BLANK], "the control row is another ticket's");
+  assert.deepEqual(
+    rowOf(device, 0, 3).map((face) => face.kind),
+    ["text", "text", "text"],
+    "the control row is the channel's three fixed verbs (ADR-0011, ADR-0012)"
+  );
 });
 
 test("a pane with no agent reports no state, since Herdr has none to give", () => {
@@ -206,7 +210,7 @@ test("the three ways a branch can be absent read differently on the strip", () =
   );
 });
 
-test("the control row stays blank, since it belongs to another ticket", () => {
+test("the control row carries focus, git and pull request, and actions, in that fixed order", () => {
   const device = surfaceOf(
     liveState({
       workspaces: [workspaceOn(1, "auth")],
@@ -214,10 +218,56 @@ test("the control row stays blank, since it belongs to another ticket", () => {
     })
   ).devices[0];
 
-  const last = XL_LAYOUT.rows - 1;
-  for (let column = 0; column < XL_LAYOUT.columns; column++) {
-    assert.equal(device.keys[last * XL_LAYOUT.columns + column].kind, "blank");
-  }
+  const [focus, git, actions] = rowOf(device, 0, 3);
+  assert.equal(focus.label, "FOCUS");
+  assert.equal(git.label, "herdr-streamdeckplusxl", "the repository names the channel here, since row 0 no longer can (-0vd.2)");
+  assert.equal(git.detail, "GIT");
+  assert.equal(actions.label, "PROMPT");
+});
+
+test("a channel with no worktree names its git key by its own label, the same as the strip does", () => {
+  const workspace = { ...workspaceOn(1, "primary"), worktree: null, label: "primary" };
+  const device = surfaceOf(liveState({ workspaces: [workspace], panes: [] })).devices[0];
+
+  assert.equal(rowOf(device, 0, 3)[1].label, "primary");
+});
+
+/** The key at a channel's row and column, as the SDK addresses it. */
+const controlKeyAt = (channel, column) => ({ deviceId: "xl-1", column: channel * 3 + column, row: XL_LAYOUT.rows - 1 });
+
+test("an armed actions key reads STOP AGAIN in the danger colour, across a redraw", () => {
+  const live = liveState({ workspaces: [workspaceOn(1, "auth")], panes: [paneOn("w1", "agent", { agent: "claude" })] });
+  const key = controlKeyAt(0, 2);
+  const armed = run(
+    [{ kind: "key-down", key, at: 1000 }, { kind: "tick", at: 1000 + HOLD_MS }],
+    live
+  );
+
+  const actions = rowOf(surfaceOf(armed).devices[0], 0, 3)[2];
+  assert.equal(actions.label, "STOP AGAIN");
+  assert.equal(actions.danger, true);
+});
+
+test("a successful control command flashes green on the key that fired it, then reverts", () => {
+  const live = liveState({ workspaces: [workspaceOn(1, "auth")], panes: [] });
+  const acknowledged = run([{ kind: "control-acknowledged", workspaceId: "w1", column: 0, ok: true, message: "FOCUSED", at: 1000 }], live);
+
+  const focus = rowOf(surfaceOf(acknowledged).devices[0], 0, 3)[0];
+  assert.equal(focus.label, "FOCUS");
+  assert.equal(focus.detail, "FOCUSED");
+  assert.equal(focus.feedback, "success");
+  assert.ok(!("danger" in focus));
+});
+
+test("a refused git/pull-request tap says so on the key without losing the repository's name", () => {
+  const live = liveState({ workspaces: [workspaceOn(1, "auth")], panes: [] });
+  const key = controlKeyAt(0, 1);
+  const tapped = run([{ kind: "key-down", key, at: 100 }, { kind: "key-up", key, at: 101 }], live);
+
+  const git = rowOf(surfaceOf(tapped).devices[0], 0, 3)[1];
+  assert.equal(git.label, "herdr-streamdeckplusxl", "identity survives the refusal, it is not replaced by it");
+  assert.equal(git.detail, "NO PR YET");
+  assert.equal(git.danger, true);
 });
 
 test("a channel keeps its branch when Herdr goes away, and drops the counts", () => {

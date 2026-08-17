@@ -35,6 +35,14 @@ export type DeviceEvent =
   | { kind: "herdr-event"; event: HerdrEvent; at: number }
   | { kind: "theme-changed"; theme: ResolvedThemeSnapshot | null }
   /**
+   * A control-row command's outcome, however it was decided. Some are decided
+   * locally with no request at all — the git/pull-request key while nothing is
+   * known yet, the actions key with no agent pane to target — because a
+   * refusal the reducer already knows the reason for does not need a round
+   * trip to Herdr to say so.
+   */
+  | { kind: "control-acknowledged"; workspaceId: string; column: number; ok: boolean; message?: string; at: number }
+  /**
    * Geography, role corrections, and acknowledged work, read back from storage
    * when the plugin starts.
    */
@@ -82,4 +90,25 @@ export type Command =
    * work the developer dealt with yesterday.
    */
   | { kind: "save-acknowledged"; acknowledged: Acknowledged }
-  | { kind: "herdr-request"; method: string; params: Record<string, unknown> };
+  | { kind: "herdr-request"; method: string; params: Record<string, unknown> }
+  /**
+   * One control-row verb, sent to Herdr and acknowledged on the key that
+   * fired it. `column` and `workspaceId` travel with the request rather than
+   * being recovered from its reply, because a reply names neither — the
+   * adapter has to know where the acknowledgement belongs before it asks.
+   *
+   * `successMessage` is decided here rather than in the adapter: what a key
+   * says when a verb works is product wording, the same kind of decision
+   * `ATTENTION_WORDS` makes for attention reasons, and `plugin.ts` stays a
+   * thin relay of whatever the reducer already decided rather than pattern
+   * matching `method` to guess it back out.
+   */
+  | { kind: "control-command"; workspaceId: string; column: number; method: string; params: Record<string, unknown>; successMessage: string }
+  /**
+   * Sending a prompt is two Herdr calls, not one: `pane.send_text` types it,
+   * and a second `pane.send_keys` submits it. There is no single socket method
+   * for "type and submit" — the CLI's `pane run` convenience composes the same
+   * two calls — so this stays its own command rather than forcing that
+   * composition into `control-command`'s single-method shape.
+   */
+  | { kind: "control-prompt"; workspaceId: string; column: number; paneId: string; text: string };

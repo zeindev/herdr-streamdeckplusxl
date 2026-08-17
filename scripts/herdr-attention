@@ -1,0 +1,94 @@
+#!/bin/sh
+#
+# herdr-attention — declare what a coding-agent hook just saw, as a Stream
+# Deck attention token, and never make the caller wait to find out.
+#
+#   herdr-attention question      # the agent asked something and is waiting
+#   herdr-attention approval      # the agent needs a permission decision
+#   herdr-attention finished      # the agent's turn ended
+#   herdr-attention clear         # the agent has resumed; nothing is pending
+#   herdr-attention notification  # Claude Code's Notification hook; reads
+#                                  # notification_type from stdin and only
+#                                  # declares `question` for idle_prompt —
+#                                  # permission_prompt is PermissionRequest's
+#                                  # job, and every other kind is out of scope
+#                                  # for the three declared reasons this owns
+#
+# Installed by install-herdr-hooks.mjs against Claude Code's hooks, but the
+# token this writes is a public contract (see DECLARED_ATTENTION_PREFIX in
+# src/device/attention.ts): any agent or tool can shell out to
+# `herdr workspace report-metadata` the same way and be read identically.
+#
+# WHY THE WORKSPACE, NOT THE PANE. ADR-0005's first plan for this put the
+# token on the pane, the way an agent's own state naturally seems to belong.
+# Probed against a running Herdr 0.8.0: `pane.report_metadata` pushes no live
+# event at all — not for a token write, not for a title write, not even when
+# a `--ttl-ms` expiry clears one. `workspace.report_metadata` does push
+# `workspace_metadata_updated` live, the same mechanism `sd_exit_` already
+# relies on, so the declaration lives there instead, named `sd_attn_<n>`
+# where `<n>` is this pane's own number within its workspace — one token per
+# pane, so two agents in one workstream keep two independent declarations.
+#
+# WHY EVERY CALL BACKGROUNDS ITSELF AND RETURNS IMMEDIATELY. A Claude Code
+# hook blocks whichever event fired it, and `PreToolUse` — one of the three
+# events this script's `clear` case is wired to — fires on every tool call in
+# every turn. Waiting on a socket round trip here would tax every tool use
+# for the rest of the session; what reaches Herdr is fire-and-forget instead.
+#
+# SILENT WHEREVER IT CANNOT ACT: outside a Herdr pane (no HERDR_WORKSPACE_ID
+# or HERDR_PANE_ID — Claude Code running in a plain terminal, say), and on any
+# error talking to Herdr. The developer asked their agent to do something; the
+# Stream Deck is the accessory, and a hook that could fail a turn over this
+# would be a worse trade than a mark that is sometimes missing.
+
+set -u
+
+TOKEN_PREFIX='sd_attn_'
+SOURCE='streamdeck-hooks'
+# Comfortably longer than any question or approval should realistically stay
+# open, but still a floor under a hook that never got to clear its own
+# declaration — a crashed session, a machine put to sleep. Herdr's own
+# ceiling on report-metadata's ttl_ms is 86400000 (24h).
+TTL_MS=14400000
+
+kind=${1:-}
+case "$kind" in
+  question | approval | finished | clear) ;;
+  notification)
+    # No jq dependency: Claude Code's Notification payload is flat, and this
+    # is the only field this script ever needs out of it. Read synchronously,
+    # before anything is backgrounded — stdin is a pipe Claude Code closes
+    # once it has written the payload, and there would be nothing left to
+    # read from inside a detached subshell that started after that happened.
+    payload=$(cat)
+    case "$payload" in
+      *'"notification_type":"idle_prompt"'* | *'"notification_type": "idle_prompt"'*) kind=question ;;
+      *) exit 0 ;;
+    esac
+    ;;
+  *)
+    echo "usage: herdr-attention <question|approval|finished|clear|notification>" >&2
+    exit 2
+    ;;
+esac
+
+run() {
+  [ -n "${HERDR_WORKSPACE_ID:-}" ] || return 0
+  [ -n "${HERDR_PANE_ID:-}" ] || return 0
+
+  # The number after the last colon is what Herdr calls this pane within its
+  # workspace — "w3:p2" becomes "p2" — which is what lets two panes in one
+  # workstream keep two independent declarations under one workspace's tokens.
+  suffix=${HERDR_PANE_ID##*:}
+  token="${TOKEN_PREFIX}${suffix}"
+
+  if [ "$kind" = "clear" ]; then
+    herdr workspace report-metadata "$HERDR_WORKSPACE_ID" --source "$SOURCE" --clear-token "$token" >/dev/null 2>&1
+  else
+    herdr workspace report-metadata "$HERDR_WORKSPACE_ID" --source "$SOURCE" \
+      --token "${token}=${kind} ${HERDR_PANE_ID}" --ttl-ms "$TTL_MS" >/dev/null 2>&1
+  fi
+}
+
+( run ) >/dev/null 2>&1 &
+exit 0

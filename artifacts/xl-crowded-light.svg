@@ -53,9 +53,24 @@
   <svg x="962" y="330" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="1120" y="330" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="1278" y="330" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
-  <svg x="14" y="488" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
-  <svg x="172" y="488" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
-  <svg x="330" y="488" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
+  <svg x="14" y="488" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="28.5" fill="rgb(113 115 136)" text-anchor="middle">FOCUS</text>
+    
+  </svg>
+  <svg x="172" y="488" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    
+    <text x="72" y="47" font-family="Consolas" font-weight="700" font-size="24" fill="rgb(113 115 136)" text-anchor="middle">herdr</text><text x="72" y="76" font-family="Consolas" font-weight="700" font-size="24" fill="rgb(113 115 136)" text-anchor="middle">streamde</text><text x="72" y="105" font-family="Consolas" font-weight="700" font-size="24" fill="rgb(113 115 136)" text-anchor="middle">ckplusxl</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">GIT</text>
+  </svg>
+  <svg x="330" y="488" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(113 115 136)" text-anchor="middle">PROMPT</text>
+    
+  </svg>
   <svg x="488" y="488" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="646" y="488" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="804" y="488" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>

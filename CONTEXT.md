@@ -79,7 +79,7 @@ The number of workstreams that exist but hold no slot. Counted and shown, never 
 _Avoid_: Extra, backlog, queue, hidden workstreams
 
 **Attention item**:
-Something that needs the developer, regardless of which workstream it belongs to. Exactly three raise one: an agent *waiting* on input, an agent *finished* and not yet acknowledged, and a service that *exited* badly and declared it. Every one is declared by something that knows, never inferred from terminal text (ADR-0005).
+Something that needs the developer, regardless of which workstream it belongs to. An agent can raise one three ways — *waiting* on input (Herdr's own signal), or, more specifically, asking a *question* or requesting an *approval* (an agent's own declaration of why) — plus an agent *finished* and not yet acknowledged, and a service that *exited* badly and declared it. Every one is declared by something that knows, never inferred from terminal text (ADR-0005). When an agent has declared its own reason, that reason wins over Herdr's native `waiting`, because it is the more specific of the two.
 _Avoid_: Notification, alert, inbox item, event
 
 **Acknowledged**:

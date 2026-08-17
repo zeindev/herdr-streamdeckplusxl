@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { HOLD_MS, RESYNC_DEBOUNCE_MS, initialState, reduce } from "../../.preview/device/state.js";
+import { ACK_DISPLAY_MS, ARM_TIMEOUT_MS, CONTINUE_PROMPT } from "../../.preview/device/control.js";
 import { attentionOf } from "../../.preview/device/attention.js";
 import { overflowOf, readSlots } from "../../.preview/device/slots.js";
 import { roleResolver } from "../../.preview/device/role.js";
@@ -718,6 +719,155 @@ test("a hold on a pane key does not also focus it when the key comes back up", (
 test("tapping an empty key asks Herdr for nothing", () => {
   const live = liveWith2([workspaceOn(1, "auth")], []).state;
   const key = keyAt(0, 2, 1);
+  const { commands } = run([{ kind: "key-down", key, at: 100 }, { kind: "key-up", key, at: 200 }], live);
+  assert.deepEqual(commands, []);
+});
+
+/** A plain tap: down, then up, with no hold in between. */
+function tapKey(state, key, at = 100) {
+  return run([{ kind: "key-down", key, at }, { kind: "key-up", key, at: at + 1 }], state);
+}
+
+test("tapping the focus key asks Herdr to focus the workstream", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "sh")]).state;
+  const { commands } = tapKey(live, keyAt(0, 0, 3));
+  assert.deepEqual(commands, [
+    { kind: "control-command", workspaceId: "w1", column: 0, method: "workspace.focus", params: { workspace_id: "w1" }, successMessage: "FOCUSED" }
+  ]);
+});
+
+test("tapping the git/pull-request key before either enrichment side exists says so, with no round trip", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], []).state;
+  const { state, commands } = tapKey(live, keyAt(0, 1, 3));
+  assert.deepEqual(commands, [], "there is nothing yet for Herdr to be asked about");
+  assert.deepEqual(state.controlAcknowledgements, [{ workspaceId: "w1", column: 1, ok: false, message: "NO PR YET", until: 101 + ACK_DISPLAY_MS }]);
+});
+
+test("tapping the actions key sends the fixed prompt to the workstream's own agent pane", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "agent", { agent: "claude" }), paneOn("w1", "sh")]).state;
+  const { commands } = tapKey(live, keyAt(0, 2, 3));
+  assert.deepEqual(commands, [
+    { kind: "control-prompt", workspaceId: "w1", column: 2, paneId: "w1:agent", text: CONTINUE_PROMPT }
+  ]);
+});
+
+test("the actions key targets the agent row's own pane, the lowest id when more than one agent runs", () => {
+  const live = liveWith2(
+    [workspaceOn(1, "auth")],
+    [paneOn("w1", "z-agent", { agent: "claude" }), paneOn("w1", "a-agent", { agent: "claude" })]
+  ).state;
+  const { commands } = tapKey(live, keyAt(0, 2, 3));
+  assert.equal(commands[0].paneId, "w1:a-agent");
+});
+
+test("tapping the actions key with no agent pane in the workstream says so, and sends nothing", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "sh")]).state;
+  const { state, commands } = tapKey(live, keyAt(0, 2, 3));
+  assert.deepEqual(commands, []);
+  assert.equal(state.controlAcknowledgements[0].message, "NO AGENT");
+  assert.equal(state.controlAcknowledgements[0].ok, false);
+});
+
+test("tapping the actions key never arms it — only a hold does", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "agent", { agent: "claude" })]).state;
+  const { state } = tapKey(live, keyAt(0, 2, 3));
+  assert.equal(state.armed, null);
+});
+
+test("holding the actions key arms it, and the hold itself sends nothing to Herdr", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "agent", { agent: "claude" })]).state;
+  const held = holdKey(live, keyAt(0, 2, 3), 5000);
+  assert.deepEqual(held.state.armed, { workspaceId: "w1", armedAt: 5000 + HOLD_MS });
+  assert.deepEqual(held.commands, []);
+});
+
+test("holding the focus or git/pull-request key arms nothing, since neither has anything to escalate to", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "agent", { agent: "claude" })]).state;
+  for (const column of [0, 1]) {
+    const held = holdKey(live, keyAt(0, column, 3), 5000);
+    assert.equal(held.state.armed, null, `column ${column} must not arm`);
+  }
+});
+
+test("a confirming tap on the armed actions key sends the interrupt and disarms", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "agent", { agent: "claude" })]).state;
+  const held = holdKey(live, keyAt(0, 2, 3), 5000);
+  const confirmed = tapKey(held.state, keyAt(0, 2, 3), held.state.armed.armedAt + 100);
+
+  assert.deepEqual(confirmed.commands, [
+    { kind: "control-command", workspaceId: "w1", column: 2, method: "pane.send_keys", params: { pane_id: "w1:agent", keys: ["C-c"] }, successMessage: "STOPPED" }
+  ]);
+  assert.equal(confirmed.state.armed, null);
+});
+
+test("confirming with no agent pane left says so, and sends nothing destructive", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "agent", { agent: "claude" })]).state;
+  const held = holdKey(live, keyAt(0, 2, 3), 5000);
+  // The agent's pane closed while the key sat armed.
+  const gone = { ...held.state, snapshot: { ...held.state.snapshot, panes: [] } };
+  const confirmed = tapKey(gone, keyAt(0, 2, 3), held.state.armed.armedAt + 100);
+
+  assert.deepEqual(confirmed.commands, []);
+  assert.equal(confirmed.state.controlAcknowledgements[0].message, "NO AGENT");
+  assert.equal(confirmed.state.armed, null, "an arm that could not be confirmed is still spent");
+});
+
+test("an arm past its timeout reverts on its own, on a tick alone", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "agent", { agent: "claude" })]).state;
+  const held = holdKey(live, keyAt(0, 2, 3), 5000);
+  const armedAt = held.state.armed.armedAt;
+
+  const stillArmed = run([{ kind: "tick", at: armedAt + ARM_TIMEOUT_MS }], held.state);
+  assert.deepEqual(stillArmed.state.armed, held.state.armed, "the window's own edge has not yet timed out");
+
+  const expired = run([{ kind: "tick", at: armedAt + ARM_TIMEOUT_MS + 1 }], held.state);
+  assert.equal(expired.state.armed, null);
+});
+
+test("a tap on anything else while armed cancels the arm without sending anything", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "agent", { agent: "claude" }), paneOn("w1", "sh")]).state;
+  const held = holdKey(live, keyAt(0, 2, 3), 5000);
+
+  // Focus in the same channel is a different control entirely.
+  const elsewhere = run([{ kind: "key-down", key: keyAt(0, 0, 3), at: held.state.armed.armedAt + 50 }], held.state);
+  assert.equal(elsewhere.state.armed, null, "the focus key is not the key that armed");
+});
+
+test("a press on another channel's actions key cancels this one's arm", () => {
+  const live = liveWith2([workspaceOn(1, "auth"), workspaceOn(2, "billing")], [paneOn("w1", "agent", { agent: "claude" })]).state;
+  const held = holdKey(live, keyAt(0, 2, 3), 5000);
+  const elsewhere = run([{ kind: "key-down", key: keyAt(1, 2, 3), at: held.state.armed.armedAt + 50 }], held.state);
+  assert.equal(elsewhere.state.armed, null);
+});
+
+test("holding the armed key again is not a cancellation of its own arm", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "agent", { agent: "claude" })]).state;
+  const held = holdKey(live, keyAt(0, 2, 3), 5000);
+  const key = keyAt(0, 2, 3);
+  const pressedAgain = run([{ kind: "key-down", key, at: held.state.armed.armedAt + 50 }], held.state);
+  assert.deepEqual(pressedAgain.state.armed, held.state.armed);
+});
+
+test("a control acknowledgement arrives, is shown, and reverts on its own after its window", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], []).state;
+  const acknowledged = run(
+    [{ kind: "control-acknowledged", workspaceId: "w1", column: 0, ok: true, message: "FOCUSED", at: 1000 }],
+    live
+  ).state;
+  assert.deepEqual(acknowledged.controlAcknowledgements, [
+    { workspaceId: "w1", column: 0, ok: true, message: "FOCUSED", until: 1000 + ACK_DISPLAY_MS }
+  ]);
+
+  const stillShown = run([{ kind: "tick", at: 1000 + ACK_DISPLAY_MS }], acknowledged).state;
+  assert.equal(stillShown.controlAcknowledgements.length, 1, "the window's own edge is still live");
+
+  const reverted = run([{ kind: "tick", at: 1000 + ACK_DISPLAY_MS + 1 }], acknowledged).state;
+  assert.deepEqual(reverted.controlAcknowledgements, []);
+});
+
+test("a channel with no workstream has no control row to press", () => {
+  const live = liveWith2([], []).state;
+  const key = keyAt(0, 0, 3);
   const { commands } = run([{ kind: "key-down", key, at: 100 }, { kind: "key-up", key, at: 200 }], live);
   assert.deepEqual(commands, []);
 });

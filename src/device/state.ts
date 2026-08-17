@@ -1,17 +1,8 @@
 import type { HerdrEvent } from "../herdr/protocol.js";
 import type { HerdrSnapshot, PaneSnapshot, ResolvedThemeSnapshot, WorktreeEntry } from "../model.js";
 import { sameKey, type Command, type DeviceEvent, type DeviceInfo, type KeyAddress } from "./events.js";
-import { HEADER_ROW, channelOfColumn, columnInChannel, layoutForDeviceType } from "./geometry.js";
-import {
-  adoptIntoSlot,
-  bind,
-  emptySlots,
-  overflowOf,
-  release,
-  sameSlots,
-  workstreamKey,
-  type SlotBindings
-} from "./slots.js";
+import { HEADER_ROW, IDENTITY_COLUMN, channelOfColumn, columnInChannel, layoutForDeviceType } from "./geometry.js";
+import { bind, cycle, emptySlots, forgetAbsent, sameSlots, type Slots } from "./slots.js";
 import { oneWorkspacePerRepository, workstreamsOf, type Branches } from "./workstream.js";
 
 /**
@@ -51,7 +42,7 @@ export type State = {
    */
   branches: Branches;
   /** Which channel belongs to which workstream, and the only durable state. */
-  slots: SlotBindings;
+  slots: Slots;
   /** Keys currently held, with when the hold began. */
   pressed: PressedKey[];
   /** When a structural change was first seen, or null when nothing is pending. */
@@ -125,7 +116,7 @@ export function reduce(state: State, event: DeviceEvent): Step {
     case "herdr-snapshot": {
       const snapshot = event.snapshot;
       const workstreams = workstreamsOf(snapshot);
-      const slots = bind(state.slots, workstreams);
+      const slots = bind(forgetAbsent(state.slots, workstreams), workstreams);
       return {
         state: {
           ...state,
@@ -169,11 +160,12 @@ export function reduce(state: State, event: DeviceEvent): Step {
       return applyHerdrEvent(state, event.event, event.at);
 
     case "tick": {
+      // A hold and a due resync are independent, so one firing must never delay
+      // the other by a whole beat.
       const held = heldLongEnough(state, event.at);
-      if (held) return applySlotHold(state, held);
-      if (state.resyncRequestedAt === null) return { state, commands: [] };
-      if (event.at - state.resyncRequestedAt < RESYNC_DEBOUNCE_MS) return { state, commands: [] };
-      return { state: { ...state, resyncRequestedAt: null }, commands: [{ kind: "load-snapshot" }] };
+      const hold = held ? applySlotHold(state, held) : { state, commands: [] };
+      const resync = dueResync(hold.state, event.at);
+      return { state: resync.state, commands: [...hold.commands, ...resync.commands] };
     }
 
     case "theme-changed":
@@ -237,7 +229,13 @@ function applyHerdrEvent(state: State, event: HerdrEvent, at: number): Step {
   return { state, commands: [] };
 }
 
-function savedIfChanged(before: SlotBindings, after: SlotBindings): Command[] {
+function dueResync(state: State, at: number): Step {
+  if (state.resyncRequestedAt === null) return { state, commands: [] };
+  if (at - state.resyncRequestedAt < RESYNC_DEBOUNCE_MS) return { state, commands: [] };
+  return { state: { ...state, resyncRequestedAt: null }, commands: [{ kind: "load-snapshot" }] };
+}
+
+function savedIfChanged(before: Slots, after: Slots): Command[] {
   return sameSlots(before, after) ? [] : [{ kind: "save-slots", slots: after }];
 }
 
@@ -254,34 +252,25 @@ function heldLongEnough(state: State, at: number): { held: PressedKey; slot: num
     const device = state.devices.find((candidate) => candidate.id === held.key.deviceId);
     const layout = device && layoutForDeviceType(device.type);
     if (!layout) continue;
-    if (held.key.row !== HEADER_ROW || columnInChannel(layout, held.key.column) !== 0) continue;
+    if (held.key.row !== HEADER_ROW || columnInChannel(layout, held.key.column) !== IDENTITY_COLUMN) continue;
     return { held, slot: channelOfColumn(layout, held.key.column) };
   }
   return null;
 }
 
 /**
- * What holding a channel's identity key does: a bound channel lets its
- * workstream go, and a free channel takes the workstream that has been waiting
- * longest. Two holds therefore move a workstream to a chosen channel, which is
- * the deliberate act ADR-0009 asks for.
+ * What holding a channel's identity key does: move that channel on to the next
+ * thing it could show. Holding a channel that holds a workstream lets it go;
+ * holding an empty one takes in the first workstream waiting, and holding again
+ * offers the next. That is the deliberate act ADR-0009 asks for, and it is one
+ * gesture rather than a vocabulary.
  *
  * The hold is spent whether or not it changed anything, so it fires once rather
  * than on every tick while the key stays down.
  */
 function applySlotHold(state: State, { held, slot }: { held: PressedKey; slot: number }): Step {
   const spent = { ...state, pressed: state.pressed.filter((candidate) => candidate !== held) };
-  const workstreams = workstreamsOf(state.snapshot, state.branches);
-
-  if (state.slots[slot] !== null) {
-    const slots = release(state.slots, slot);
-    return { state: { ...spent, slots }, commands: savedIfChanged(state.slots, slots) };
-  }
-
-  const [waiting] = overflowOf(state.slots, workstreams);
-  if (!waiting) return { state: spent, commands: [] };
-
-  const slots = adoptIntoSlot(state.slots, slot, workstreamKey(waiting));
+  const slots = cycle(state.slots, slot, workstreamsOf(state.snapshot, state.branches));
   return { state: { ...spent, slots }, commands: savedIfChanged(state.slots, slots) };
 }
 

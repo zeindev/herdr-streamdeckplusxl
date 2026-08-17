@@ -3,13 +3,15 @@ import test from "node:test";
 
 import { workstreamsOf } from "../../.preview/device/workstream.js";
 import {
-  adoptIntoSlot,
   bind,
+  candidatesFor,
   channelWorkstreams,
+  cycle,
   emptySlots,
+  forgetAbsent,
   overflowOf,
   readSlots,
-  release,
+  storedSlots,
   workstreamKey
 } from "../../.preview/device/slots.js";
 import { recordedWorkspace } from "../herdr/fixtures/recorded.mjs";
@@ -47,7 +49,7 @@ test("a workspace with no worktree keys on its id, the only durable thing it has
 });
 
 test("there are always exactly three slots, however few workstreams exist", () => {
-  assert.equal(emptySlots().length, 3);
+  assert.equal(emptySlots().bindings.length, 3);
   assert.deepEqual(labels(emptySlots(), []), [null, null, null]);
 });
 
@@ -113,54 +115,105 @@ test("overflow clears as soon as a channel frees up", () => {
   assert.equal(overflowOf(bind(bound, roomy), roomy).length, 0, "the freed slot absorbs the overflow");
 });
 
-test("releasing a slot empties it and makes its workstream overflow", () => {
+test("holding a channel that holds a workstream lets it go", () => {
   const workstreams = streams(workspace(1, "auth"), workspace(2, "billing"));
   const bound = bind(emptySlots(), workstreams);
 
-  const released = release(bound, 0);
+  const released = cycle(bound, 0, workstreams);
   assert.deepEqual(labels(released, workstreams), [null, "billing", null]);
   assert.deepEqual(overflowOf(released, workstreams).map((held) => held.label), ["auth"]);
 });
 
-test("an empty slot adopts a named workstream, and takes it from wherever it was", () => {
+test("a released workstream stays released when Herdr next speaks", () => {
+  // Without this the whole gesture is theatre: the next snapshot would hand the
+  // workstream straight back to the channel it was just taken out of.
   const workstreams = streams(workspace(1, "auth"), workspace(2, "billing"));
-  const bound = bind(emptySlots(), workstreams);
+  const released = cycle(bind(emptySlots(), workstreams), 0, workstreams);
 
-  const moved = adoptIntoSlot(bound, 2, workstreamKey(workstreams[0]));
-  assert.deepEqual(labels(moved, workstreams), [null, "billing", "auth"], "a workstream is never in two channels");
+  assert.deepEqual(labels(bind(released, workstreams), workstreams), [null, "billing", null]);
 });
 
-test("adopting into an occupied slot swaps rather than duplicating", () => {
-  const workstreams = streams(workspace(1, "auth"), workspace(2, "billing"));
-  const bound = bind(emptySlots(), workstreams);
+test("holding an empty channel takes in the workstream that was waiting", () => {
+  const workstreams = streams(workspace(1, "auth"), workspace(2, "billing"), workspace(3, "search"));
+  const bound = bind(emptySlots(), [workstreams[0], workstreams[1]]);
 
-  const swapped = adoptIntoSlot(bound, 1, workstreamKey(workstreams[0]));
-  assert.deepEqual(labels(swapped, workstreams), [null, "auth", null]);
+  const adopted = cycle(bound, 2, workstreams);
+  assert.deepEqual(labels(adopted, workstreams), ["auth", "billing", "search"]);
 });
 
-test("assignments survive a round trip through settings", () => {
+test("holding again offers the next workstream, so the developer can choose", () => {
+  const workstreams = streams(workspace(1, "auth"), workspace(2, "billing"), workspace(3, "search"));
+  const only = bind(emptySlots(), [workstreams[0]]);
+
+  const first = cycle(only, 1, workstreams);
+  assert.deepEqual(labels(first, workstreams), ["auth", "billing", null]);
+
+  const second = cycle(first, 1, workstreams);
+  assert.deepEqual(labels(second, workstreams), ["auth", "search", null], "a second hold offers the other one");
+});
+
+test("the cycle comes back round rather than trapping the developer in a list", () => {
+  const workstreams = streams(workspace(1, "auth"));
+  let slots = bind(emptySlots(), workstreams);
+  const seen = [labels(slots, workstreams)[0]];
+  for (let hold = 0; hold < 2; hold++) {
+    slots = cycle(slots, 0, workstreams);
+    seen.push(labels(slots, workstreams)[0]);
+  }
+  assert.deepEqual(seen, ["auth", null, "auth"]);
+});
+
+test("a channel is never offered a workstream another channel is holding", () => {
   const workstreams = streams(workspace(1, "auth"), workspace(2, "billing"));
   const bound = bind(emptySlots(), workstreams);
 
-  const restored = readSlots(JSON.parse(JSON.stringify({ slots: bound })));
-  assert.deepEqual(restored, bound);
-  assert.deepEqual(labels(restored, workstreams), ["auth", "billing", null]);
+  assert.deepEqual(candidatesFor(bound, 2, workstreams), [null], "both are spoken for");
+  assert.deepEqual(candidatesFor(bound, 0, workstreams), [null, workstreamKey(workstreams[0])]);
+});
+
+test("a workstream detached and then closed is forgotten rather than remembered forever", () => {
+  const workstreams = streams(workspace(1, "auth"), workspace(2, "billing"));
+  const released = cycle(bind(emptySlots(), workstreams), 0, workstreams);
+  assert.deepEqual(released.detached, [workstreamKey(workstreams[0])]);
+
+  const survivors = streams(workspace(2, "billing"));
+  assert.deepEqual(forgetAbsent(released, survivors).detached, []);
+});
+
+test("geography survives a round trip through settings", () => {
+  const workstreams = streams(workspace(1, "auth"), workspace(2, "billing"), workspace(3, "search"));
+  const released = cycle(bind(emptySlots(), workstreams), 0, workstreams);
+
+  const restored = readSlots(JSON.parse(JSON.stringify(storedSlots(released))));
+  assert.deepEqual(restored, released);
+  assert.deepEqual(labels(restored, workstreams), [null, "billing", "search"]);
+  assert.deepEqual(labels(bind(restored, workstreams), workstreams), [null, "billing", "search"], "still released");
 });
 
 test("settings that are missing, damaged, or the wrong shape leave the device usable", () => {
-  for (const stored of [undefined, null, {}, { slots: "nonsense" }, { slots: [1, 2, 3] }, { slots: [] }]) {
+  const damaged = [undefined, null, {}, { slots: "nonsense" }, { slots: [1, 2, 3] }, { slots: [] }, { detached: 7 }];
+  for (const stored of damaged) {
     const restored = readSlots(stored);
-    assert.equal(restored.length, 3, `${JSON.stringify(stored)} must still yield three slots`);
-    assert.ok(restored.every((held) => held === null || typeof held === "string"));
+    assert.equal(restored.bindings.length, 3, `${JSON.stringify(stored)} must still yield three slots`);
+    assert.ok(restored.bindings.every((held) => held === null || typeof held === "string"));
+    assert.ok(Array.isArray(restored.detached));
   }
 });
 
 test("stored settings naming the same workstream twice keep only the first", () => {
-  const restored = readSlots({ slots: ["checkout:/w/auth", "checkout:/w/auth", null] });
-  assert.deepEqual(restored, ["checkout:/w/auth", null, null]);
+  assert.deepEqual(readSlots({ slots: ["checkout:/w/auth", "checkout:/w/auth", null] }).bindings, [
+    "checkout:/w/auth",
+    null,
+    null
+  ]);
 });
 
 test("stored settings longer than the device are cut to its three slots", () => {
-  const restored = readSlots({ slots: ["a", "b", "c", "d", "e"] });
-  assert.deepEqual(restored, ["a", "b", "c"]);
+  assert.deepEqual(readSlots({ slots: ["a", "b", "c", "d", "e"] }).bindings, ["a", "b", "c"]);
+});
+
+test("a workstream cannot be both held and detached, however the settings were written", () => {
+  const restored = readSlots({ slots: ["checkout:/w/auth", null, null], detached: ["checkout:/w/auth"] });
+  assert.deepEqual(restored.bindings, ["checkout:/w/auth", null, null]);
+  assert.deepEqual(restored.detached, [], "holding a channel wins over being detached");
 });

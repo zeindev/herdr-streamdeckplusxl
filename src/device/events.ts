@@ -1,6 +1,6 @@
 import type { HerdrEvent } from "../herdr/protocol.js";
 import type { HerdrSnapshot, ResolvedThemeSnapshot, WorktreeEntry } from "../model.js";
-import type { SlotBindings } from "./slots.js";
+import type { Slots } from "./slots.js";
 
 /** A physical key, identified by the device it belongs to and where it sits. */
 export type KeyAddress = { deviceId: string; column: number; row: number };
@@ -28,7 +28,7 @@ export type DeviceEvent =
   | { kind: "herdr-event"; event: HerdrEvent; at: number }
   | { kind: "theme-changed"; theme: ResolvedThemeSnapshot | null }
   /** Slot assignments read back from storage when the plugin starts. */
-  | { kind: "settings-loaded"; slots: SlotBindings }
+  | { kind: "settings-loaded"; slots: Slots }
   /** `at` is stamped by the adapter, so a hold can be told from a tap. */
   | { kind: "key-down"; key: KeyAddress; at: number }
   | { kind: "key-up"; key: KeyAddress; at: number }
@@ -52,5 +52,5 @@ export type Command =
    * app, so they live in the app's settings rather than in a workspace token,
    * which dies with its workspace (ADR-0009).
    */
-  | { kind: "save-slots"; slots: SlotBindings }
+  | { kind: "save-slots"; slots: Slots }
   | { kind: "herdr-request"; method: string; params: Record<string, unknown> };

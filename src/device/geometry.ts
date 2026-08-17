@@ -54,6 +54,15 @@ export const CHANNEL_COUNT = 3;
  */
 export const HEADER_ROW = 0;
 
+/**
+ * The column of the header row that names the workstream.
+ *
+ * Both the projection and the input path need it — one draws the identity there,
+ * the other listens for the hold that changes what the channel means — so it is
+ * named once rather than being spelled `0` in two files that must agree.
+ */
+export const IDENTITY_COLUMN = 0;
+
 /** The channel a column belongs to. */
 export function channelOfColumn(layout: DeviceLayout, column: number): number {
   return Math.floor(column / layout.columnsPerChannel);

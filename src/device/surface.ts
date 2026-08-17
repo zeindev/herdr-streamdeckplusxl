@@ -1,5 +1,13 @@
 import type { AgentStatus } from "../model.js";
-import { CHANNEL_COUNT, HEADER_ROW, channelKeyIndex, keyCount, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
+import {
+  CHANNEL_COUNT,
+  HEADER_ROW,
+  IDENTITY_COLUMN,
+  channelKeyIndex,
+  keyCount,
+  layoutForDeviceType,
+  type DeviceLayout
+} from "./geometry.js";
 import { channelWorkstreams, overflowOf } from "./slots.js";
 import type { State } from "./state.js";
 import { workstreamsOf, type Workstream } from "./workstream.js";
@@ -79,17 +87,24 @@ function keysOf(layout: DeviceLayout, workstreams: ReadonlyArray<Workstream | nu
  * sits at the same place in all three channels.
  */
 function headerOf(channel: number, workstream: Workstream | null): KeyFace[] {
-  if (!workstream) return [{ kind: "empty", slot: channel }, BLANK, BLANK];
+  if (!workstream) return atIdentity({ kind: "empty", slot: channel });
   const worktree = workstream.worktree;
   // The label leads and the repository follows: a monorepo hosts several
   // workstreams at once, so the repository name alone can name all three
   // channels identically while the label is what the developer chose.
   const repository = worktree?.repoName;
-  return [
+  return atIdentity(
     detail(workstream.label, repository === workstream.label ? undefined : repository),
     { kind: "text", label: branchLabel(worktree) },
     stateFace(workstream.agentStatus)
-  ];
+  );
+}
+
+/** Lays faces out from the identity column rightwards, blanking the rest. */
+function atIdentity(...faces: KeyFace[]): KeyFace[] {
+  const header = Array.from({ length: faces.length + IDENTITY_COLUMN }, () => BLANK);
+  faces.forEach((face, offset) => (header[IDENTITY_COLUMN + offset] = face));
+  return header;
 }
 
 /**

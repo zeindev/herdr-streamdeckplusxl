@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { RESYNC_DEBOUNCE_MS, SLOT_HOLD_MS, initialState, reduce } from "../../.preview/device/state.js";
-import { overflowOf } from "../../.preview/device/slots.js";
+import { overflowOf, readSlots } from "../../.preview/device/slots.js";
 import { DEVICE_TYPE_XL } from "../../.preview/device/geometry.js";
 import { workstreamsOf } from "../../.preview/device/workstream.js";
 import { recordedEvents, recordedWorkspace, recordedWorktree } from "../herdr/fixtures/recorded.mjs";
@@ -435,40 +435,38 @@ function hold(state, channel, at = 10_000) {
 test("a workstream is given a channel and the assignment is persisted", () => {
   const { state, commands } = liveWith([workspaceOn(1, "auth")], run([xl]).state);
 
-  assert.deepEqual(state.slots, ["checkout:/w/auth", null, null]);
-  assert.deepEqual(
-    commands.filter((command) => command.kind === "save-slots"),
-    [{ kind: "save-slots", slots: ["checkout:/w/auth", null, null] }],
-    "geography that is not written down does not survive the night"
-  );
+  assert.deepEqual(state.slots.bindings, ["checkout:/w/auth", null, null]);
+  const saves = commands.filter((command) => command.kind === "save-slots");
+  assert.equal(saves.length, 1, "geography that is not written down does not survive the night");
+  assert.deepEqual(saves[0].slots.bindings, ["checkout:/w/auth", null, null]);
 });
 
 test("a workstream keeps its channel when an earlier one closes", () => {
   const both = liveWith([workspaceOn(1, "auth"), workspaceOn(2, "billing")], run([xl]).state);
-  assert.deepEqual(both.state.slots, ["checkout:/w/auth", "checkout:/w/billing", null]);
+  assert.deepEqual(both.state.slots.bindings, ["checkout:/w/auth", "checkout:/w/billing", null]);
 
   const after = liveWith([workspaceOn(2, "billing")], both.state);
-  assert.equal(after.state.slots[1], "checkout:/w/billing", "billing does not slide left into the free channel");
+  assert.equal(after.state.slots.bindings[1], "checkout:/w/billing", "billing does not slide left into the free channel");
   assert.deepEqual(after.commands.filter((command) => command.kind === "save-slots"), [], "nothing moved, nothing to write");
 });
 
 test("assignments read back from settings put the channels where they were", () => {
-  const stored = { kind: "settings-loaded", slots: [null, "checkout:/w/billing", "checkout:/w/auth"] };
+  const stored = { kind: "settings-loaded", slots: readSlots({ slots: [null, "checkout:/w/billing", "checkout:/w/auth"] }) };
   const restored = run([xl, stored]);
-  assert.deepEqual(restored.state.slots, [null, "checkout:/w/billing", "checkout:/w/auth"]);
+  assert.deepEqual(restored.state.slots.bindings, [null, "checkout:/w/billing", "checkout:/w/auth"]);
 
   // Herdr comes back with different workspace ids; the checkout path is what
   // the channel remembers, so both land where the developer left them.
   const live = liveWith([workspaceOn(8, "auth"), workspaceOn(9, "billing")], restored.state);
-  assert.deepEqual(live.state.slots, [null, "checkout:/w/billing", "checkout:/w/auth"]);
+  assert.deepEqual(live.state.slots.bindings, [null, "checkout:/w/billing", "checkout:/w/auth"]);
   assert.deepEqual(live.commands.filter((command) => command.kind === "save-slots"), []);
 });
 
 test("a workstream the stored settings never mentioned takes a free channel", () => {
-  const restored = run([xl, { kind: "settings-loaded", slots: [null, "checkout:/w/billing", null] }]);
+  const restored = run([xl, { kind: "settings-loaded", slots: readSlots({ slots: [null, "checkout:/w/billing", null] }) }]);
   const live = liveWith([workspaceOn(1, "auth"), workspaceOn(2, "billing")], restored.state);
 
-  assert.deepEqual(live.state.slots, ["checkout:/w/auth", "checkout:/w/billing", null]);
+  assert.deepEqual(live.state.slots.bindings, ["checkout:/w/auth", "checkout:/w/billing", null]);
 });
 
 test("a fourth workstream is counted rather than given a channel", () => {
@@ -477,7 +475,7 @@ test("a fourth workstream is counted rather than given a channel", () => {
     run([xl]).state
   );
 
-  assert.deepEqual(state.slots, ["checkout:/w/a", "checkout:/w/b", "checkout:/w/c"]);
+  assert.deepEqual(state.slots.bindings, ["checkout:/w/a", "checkout:/w/b", "checkout:/w/c"]);
   assert.equal(overflowOf(state.slots, workstreamsOf(state.snapshot)).length, 1);
 });
 
@@ -489,7 +487,7 @@ test("overflow clears live as a workstream closes", () => {
   const roomy = liveWith([workspaceOn(2, "b"), workspaceOn(3, "c"), workspaceOn(4, "d")], crowded.state);
 
   assert.equal(overflowOf(roomy.state.slots, workstreamsOf(roomy.state.snapshot)).length, 0);
-  assert.equal(roomy.state.slots[0], "checkout:/w/d", "the freed channel absorbs the workstream that was waiting");
+  assert.equal(roomy.state.slots.bindings[0], "checkout:/w/d", "the freed channel absorbs the workstream that was waiting");
 });
 
 test("a tap on a channel changes nothing, because reassigning must be deliberate", () => {
@@ -503,7 +501,7 @@ test("a tap on a channel changes nothing, because reassigning must be deliberate
     live.state
   );
 
-  assert.deepEqual(tapped.state.slots, live.state.slots);
+  assert.deepEqual(tapped.state.slots.bindings, live.state.slots.bindings);
   assert.deepEqual(tapped.commands, []);
 });
 
@@ -511,9 +509,20 @@ test("holding a bound channel lets its workstream go, and says so in storage", (
   const live = liveWith([workspaceOn(1, "auth"), workspaceOn(2, "billing")], run([xl]).state);
   const released = hold(live.state, 0);
 
-  assert.deepEqual(released.state.slots, [null, "checkout:/w/billing", null]);
-  assert.deepEqual(released.commands, [{ kind: "save-slots", slots: [null, "checkout:/w/billing", null] }]);
+  assert.deepEqual(released.state.slots.bindings, [null, "checkout:/w/billing", null]);
+  assert.equal(released.commands.filter((command) => command.kind === "save-slots").length, 1);
   assert.equal(overflowOf(released.state.slots, workstreamsOf(released.state.snapshot)).length, 1, "it is over budget now");
+});
+
+test("a released workstream is not handed straight back by the next snapshot", () => {
+  // The gesture is only real if it outlives Herdr speaking again, which it does
+  // dozens of times a second.
+  const live = liveWith([workspaceOn(1, "auth"), workspaceOn(2, "billing")], run([xl]).state);
+  const released = hold(live.state, 0);
+  const after = liveWith([workspaceOn(1, "auth"), workspaceOn(2, "billing")], released.state);
+
+  assert.deepEqual(after.state.slots.bindings, [null, "checkout:/w/billing", null]);
+  assert.equal(overflowOf(after.state.slots, workstreamsOf(after.state.snapshot)).length, 1);
 });
 
 test("holding an empty channel takes in the workstream that was waiting", () => {
@@ -521,15 +530,26 @@ test("holding an empty channel takes in the workstream that was waiting", () => 
   const released = hold(live.state, 0);
   const adopted = hold(released.state, 2, 20_000);
 
-  assert.deepEqual(adopted.state.slots, [null, "checkout:/w/billing", "checkout:/w/auth"]);
+  assert.deepEqual(adopted.state.slots.bindings, [null, "checkout:/w/billing", "checkout:/w/auth"]);
   assert.equal(overflowOf(adopted.state.slots, workstreamsOf(adopted.state.snapshot)).length, 0);
+});
+
+test("a worktree created while one channel is free lands in that channel", () => {
+  const live = liveWith([workspaceOn(1, "auth"), workspaceOn(2, "billing")], run([xl]).state);
+  assert.equal(live.state.slots.bindings[2], null, "one channel is offering a worktree");
+
+  const created = liveWith(
+    [workspaceOn(1, "auth"), workspaceOn(2, "billing"), workspaceOn(3, "search")],
+    live.state
+  );
+  assert.equal(created.state.slots.bindings[2], "checkout:/w/search");
 });
 
 test("holding an empty channel with nothing waiting does nothing", () => {
   const live = liveWith([workspaceOn(1, "auth")], run([xl]).state);
   const held = hold(live.state, 2);
 
-  assert.deepEqual(held.state.slots, live.state.slots);
+  assert.deepEqual(held.state.slots.bindings, live.state.slots.bindings);
   assert.deepEqual(held.commands, []);
 });
 
@@ -542,7 +562,7 @@ test("a hold fires once, however long the key stays down", () => {
   );
 
   assert.equal(many.commands.filter((command) => command.kind === "save-slots").length, 1);
-  assert.deepEqual(many.state.slots, [null, "checkout:/w/billing", null], "channel 1 was not released as well");
+  assert.deepEqual(many.state.slots.bindings, [null, "checkout:/w/billing", null], "channel 1 was not released as well");
 });
 
 test("holding a key that is not a channel identity does nothing", () => {
@@ -554,7 +574,7 @@ test("holding a key that is not a channel identity does nothing", () => {
       [{ kind: "key-down", key, at: 1000 }, { kind: "tick", at: 1000 + SLOT_HOLD_MS }],
       live.state
     );
-    assert.deepEqual(held.state.slots, live.state.slots);
+    assert.deepEqual(held.state.slots.bindings, live.state.slots.bindings);
     assert.deepEqual(held.commands, []);
   }
 });
@@ -563,7 +583,7 @@ test("a workspace with no worktree occupies a channel like any other", () => {
   const primary = { ...workspaceOn(1, "primary"), worktree: null };
   const { state } = liveWith([primary, workspaceOn(2, "auth")], run([xl]).state);
 
-  assert.deepEqual(state.slots, ["workspace:w1", "checkout:/w/auth", null]);
+  assert.deepEqual(state.slots.bindings, ["workspace:w1", "checkout:/w/auth", null]);
 });
 
 test("every recorded event kind can be applied to a live state without throwing", () => {

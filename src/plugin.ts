@@ -14,7 +14,7 @@ import streamDeck, {
 
 import type { Command, DeviceEvent } from "./device/events.js";
 import { keyAddress, layoutForDeviceType, type DeviceLayout } from "./device/geometry.js";
-import { readSlots, type SlotBindings } from "./device/slots.js";
+import { readSlots, storedSlots } from "./device/slots.js";
 import { initialState, reduce, type State } from "./device/state.js";
 import { changedControls, surfaceOf, type ControlChange, type EncoderFace, type KeyFace, type Surface } from "./device/surface.js";
 import { encoderImage, keyImage } from "./device/paint.js";
@@ -125,7 +125,7 @@ class Adapter {
       if (command.kind === "save-slots") {
         // Global rather than per-action: the assignment belongs to the device as
         // a whole, and must survive the actions being re-placed on a profile.
-        await streamDeck.settings.setGlobalSettings({ slots: [...command.slots] });
+        await streamDeck.settings.setGlobalSettings(storedSlots(command.slots));
         return;
       }
       await this.herdr.request(command.method, command.params);

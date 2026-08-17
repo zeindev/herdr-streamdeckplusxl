@@ -1,7 +1,8 @@
 import type { HerdrEvent } from "../herdr/protocol.js";
-import type { HerdrSnapshot, PaneSnapshot, ResolvedThemeSnapshot } from "../model.js";
+import type { HerdrSnapshot, PaneSnapshot, ResolvedThemeSnapshot, WorktreeEntry } from "../model.js";
 import { sameKey, type Command, type DeviceEvent, type DeviceInfo, type KeyAddress } from "./events.js";
 import { layoutForDeviceType } from "./geometry.js";
+import { repositoriesToQuery, workstreamsOf, type Branches } from "./workstream.js";
 
 /**
  * How long a burst of structural changes is allowed to settle before the truth
@@ -22,6 +23,12 @@ export type State = {
   snapshot: HerdrSnapshot | null;
   theme: ResolvedThemeSnapshot | null;
   devices: DeviceInfo[];
+  /**
+   * Branch per checkout path, from `worktree.list`. Held beside the snapshot
+   * rather than merged into it because Herdr answers for the two separately, and
+   * a snapshot re-read must not drop a branch that has not changed.
+   */
+  branches: Branches;
   /** Keys currently held. */
   pressed: KeyAddress[];
   /** When a structural change was first seen, or null when nothing is pending. */
@@ -31,7 +38,15 @@ export type State = {
 export type Step = { state: State; commands: Command[] };
 
 export function initialState(): State {
-  return { sync: "offline", snapshot: null, theme: null, devices: [], pressed: [], resyncRequestedAt: null };
+  return {
+    sync: "offline",
+    snapshot: null,
+    theme: null,
+    devices: [],
+    branches: {},
+    pressed: [],
+    resyncRequestedAt: null
+  };
 }
 
 /**
@@ -80,8 +95,32 @@ export function reduce(state: State, event: DeviceEvent): Step {
         ? { state: { ...state, sync: "syncing", resyncRequestedAt: null }, commands: [{ kind: "load-snapshot" }] }
         : { state: { ...state, sync: "offline", resyncRequestedAt: null }, commands: [] };
 
-    case "herdr-snapshot":
-      return { state: { ...state, sync: "live", snapshot: event.snapshot, resyncRequestedAt: null }, commands: [] };
+    case "herdr-snapshot": {
+      const snapshot = event.snapshot;
+      const workstreams = workstreamsOf(snapshot);
+      return {
+        state: {
+          ...state,
+          sync: "live",
+          snapshot,
+          // Branches of checkouts that are gone would otherwise accumulate for
+          // as long as the plugin runs.
+          branches: keepKnownCheckouts(state.branches, snapshot),
+          resyncRequestedAt: null
+        },
+        // One read per repository, not per workstream: `worktree.list` answers
+        // for a whole repository at once.
+        commands: repositoriesToQuery(workstreams).map(({ workspaceId }) => ({
+          kind: "load-worktrees" as const,
+          workspaceId
+        }))
+      };
+    }
+
+    case "herdr-worktrees": {
+      const branches = withBranches(state.branches, event.worktrees, state.snapshot);
+      return branches === state.branches ? { state, commands: [] } : { state: { ...state, branches }, commands: [] };
+    }
 
     case "herdr-event":
       return applyHerdrEvent(state, event.event, event.at);
@@ -147,6 +186,44 @@ function applyHerdrEvent(state: State, event: HerdrEvent, at: number): Step {
   }
 
   return { state, commands: [] };
+}
+
+/** Every checkout path the snapshot's workspaces currently occupy. */
+function checkoutPathsOf(snapshot: HerdrSnapshot | null): Set<string> {
+  const paths = new Set<string>();
+  for (const workspace of snapshot?.workspaces ?? []) {
+    if (workspace.worktree) paths.add(workspace.worktree.checkout_path);
+  }
+  return paths;
+}
+
+/**
+ * Drops branches for checkouts no longer held by any workspace, and returns the
+ * same object when nothing was dropped so an unchanged snapshot causes no redraw.
+ */
+function keepKnownCheckouts(branches: Branches, snapshot: HerdrSnapshot): Branches {
+  const live = checkoutPathsOf(snapshot);
+  const kept = Object.entries(branches).filter(([path]) => live.has(path));
+  return kept.length === Object.keys(branches).length ? branches : Object.fromEntries(kept);
+}
+
+/**
+ * Folds a `worktree.list` reply into the known branches.
+ *
+ * A repository usually has worktrees no workspace is open on, so only the ones a
+ * workspace occupies are kept — otherwise the map would grow with checkouts the
+ * device can never show.
+ */
+function withBranches(branches: Branches, worktrees: readonly WorktreeEntry[], snapshot: HerdrSnapshot | null): Branches {
+  const wanted = checkoutPathsOf(snapshot);
+  let next: Record<string, string> | null = null;
+  for (const worktree of worktrees) {
+    if (!worktree.branch || !wanted.has(worktree.path)) continue;
+    if (branches[worktree.path] === worktree.branch) continue;
+    next ??= { ...branches };
+    next[worktree.path] = worktree.branch;
+  }
+  return next ?? branches;
 }
 
 /**

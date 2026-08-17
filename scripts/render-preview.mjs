@@ -6,7 +6,7 @@
  * because it draws the projected surface rather than hand-written examples, an
  * image that looks wrong means the projection is wrong.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import { copiedHerdrTheme } from "../.preview/herdr-themes.js";
 import { DEVICE_TYPE_XL, XL_LAYOUT } from "../.preview/device/geometry.js";
@@ -30,27 +30,68 @@ function apply(events, from = initialState()) {
 
 const attach = { kind: "device-attached", device: { id: "preview", type: DEVICE_TYPE_XL } };
 
+/**
+ * The preview is only evidence if it draws what Herdr actually sends, so the
+ * workspace shape comes from the recorded capture rather than being written here.
+ */
+const capture = JSON.parse(readFileSync(new URL("../src/herdr/fixtures/capture.json", import.meta.url), "utf8"));
+const recordedWorkspace = capture.events.find((event) => event.event === "workspace_created").data.workspace;
+
+function workspace(number, label, checkoutPath) {
+  return {
+    ...structuredClone(recordedWorkspace),
+    workspace_id: `w${number}`,
+    number,
+    label,
+    ...(checkoutPath === null
+      ? { worktree: null }
+      : { worktree: { ...structuredClone(recordedWorkspace.worktree), checkout_path: checkoutPath } })
+  };
+}
+
+function agentPane(workspaceId, index, status) {
+  return { pane_id: `${workspaceId}:p${index}`, workspace_id: workspaceId, agent: "claude", agent_status: status };
+}
+
+function live(workspaces, panes, branches) {
+  return apply([
+    attach,
+    { kind: "herdr-connection", connected: true },
+    { kind: "herdr-snapshot", snapshot: { workspaces, tabs: [], panes } },
+    { kind: "herdr-worktrees", worktrees: Object.entries(branches).map(([path, branch]) => ({ path, branch })) }
+  ]);
+}
+
 const scenes = {
   offline: apply([attach]),
   syncing: apply([attach, { kind: "herdr-connection", connected: true }]),
-  live: apply([
-    attach,
-    { kind: "herdr-connection", connected: true },
-    {
-      kind: "herdr-snapshot",
-      snapshot: {
-        workspaces: [{ workspace_id: "w1" }, { workspace_id: "w2" }, { workspace_id: "w3" }],
-        tabs: [],
-        panes: Array.from({ length: 14 }, (_, index) => ({ pane_id: `w1:p${index}` }))
-      }
-    }
-  ])
+  // Three workstreams, one per channel, each in a different state.
+  live: live(
+    [
+      workspace(1, "auth rewrite", "/w/auth-rewrite"),
+      workspace(2, "billing api", "/w/billing-api"),
+      workspace(3, "search perf", "/w/search-perf")
+    ],
+    [
+      agentPane("w1", 1, "blocked"),
+      agentPane("w2", 1, "working"),
+      agentPane("w3", 1, "done")
+    ],
+    { "/w/auth-rewrite": "feat/auth-rewrite", "/w/billing-api": "feat/billing-api", "/w/search-perf": "perf/search" }
+  ),
+  // The awkward cases: one slot unassigned, one workspace with no worktree, and
+  // a workstream whose panes run no agent.
+  partial: live(
+    [workspace(1, "primary", null), workspace(2, "search perf", "/w/search-perf")],
+    [{ pane_id: "w2:p1", workspace_id: "w2", agent_status: "unknown" }],
+    { "/w/search-perf": "perf/search" }
+  )
 };
 
 mkdirSync("artifacts", { recursive: true });
 for (const [name, state] of Object.entries(scenes)) {
   for (const [appearance, theme] of [["dark", dark], ["light", light]]) {
-    if (name !== "live" && appearance === "light") continue;
+    if (name !== "live" && name !== "partial" && appearance === "light") continue;
     writeFileSync(`artifacts/xl-${name}-${appearance}.svg`, devicePreview(state, theme));
   }
 }

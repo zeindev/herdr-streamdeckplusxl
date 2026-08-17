@@ -12,7 +12,22 @@ import type { EncoderFace, KeyFace } from "./surface.js";
  */
 
 export function keyImage(face: KeyFace, theme: ResolvedThemeSnapshot | null): string {
-  return keySvg(face.kind === "blank" ? { label: "", blank: true } : { label: face.label, detail: face.detail }, theme);
+  return keySvg(keyView(face), theme);
+}
+
+function keyView(face: KeyFace): Parameters<typeof keySvg>[0] {
+  switch (face.kind) {
+    case "blank":
+      return { label: "", blank: true };
+    case "empty":
+      return { label: "", empty: true, slot: face.slot };
+    case "status":
+      // The status word is the label, so the outline colour restates the reading
+      // rather than being the only way to get it.
+      return { label: face.label, status: face.status };
+    case "text":
+      return { label: face.label, detail: face.detail };
+  }
 }
 
 /**

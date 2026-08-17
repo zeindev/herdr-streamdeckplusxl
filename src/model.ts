@@ -47,7 +47,47 @@ export type PaneSnapshot = {
 };
 
 export type TabSnapshot = { tab_id: string; workspace_id: string; label?: string; number?: number };
-export type WorkspaceSnapshot = { workspace_id: string; label?: string; number?: number };
+
+/**
+ * The worktree details Herdr attaches to a workspace.
+ *
+ * Note what is absent: there is no branch here. Herdr's `WorkspaceWorktreeInfo`
+ * carries exactly these five fields, and the branch lives on `WorktreeEntry`,
+ * which only `worktree.list` and the `worktree_*` events return.
+ */
+export type WorkspaceWorktreeSnapshot = {
+  repo_key: string;
+  repo_name: string;
+  repo_root: string;
+  checkout_path: string;
+  is_linked_worktree: boolean;
+};
+
+export type WorkspaceSnapshot = {
+  workspace_id: string;
+  label?: string;
+  number?: number;
+  focused?: boolean;
+  pane_count?: number;
+  tab_count?: number;
+  /**
+   * Herdr's own aggregate over the workspace's panes. Correct when read, but
+   * never pushed — see `agentStatusOfPanes`, which is what keeps a channel live.
+   */
+  agent_status?: AgentStatus;
+  /** Null for a workspace that is not a checkout Herdr tracks. */
+  worktree?: WorkspaceWorktreeSnapshot | null;
+  tokens?: Record<string, string>;
+};
+
+/** One entry of a `worktree.list` reply: the only place a branch is reported. */
+export type WorktreeEntry = {
+  path: string;
+  branch?: string | null;
+  label?: string;
+  is_linked_worktree?: boolean;
+  open_workspace_id?: string | null;
+};
 
 export type AgentSessionRef = {
   source: string;
@@ -85,6 +125,58 @@ export function snapshotFromResult(result: Record<string, unknown>): HerdrSnapsh
   const candidate = result.snapshot ?? result;
   if (!candidate || typeof candidate !== "object" || !Array.isArray((candidate as HerdrSnapshot).panes)) return undefined;
   return candidate as HerdrSnapshot;
+}
+
+/**
+ * Reads the worktrees out of a `worktree.list` result. Returns an empty list
+ * rather than throwing when the shape is not what this protocol version expects,
+ * so a branch that cannot be read leaves the rest of the device working.
+ */
+export function worktreesFromResult(result: Record<string, unknown>): WorktreeEntry[] {
+  const worktrees = result.worktrees;
+  if (!Array.isArray(worktrees)) return [];
+  return worktrees.filter(
+    (entry): entry is WorktreeEntry => Boolean(entry) && typeof (entry as WorktreeEntry).path === "string"
+  );
+}
+
+/**
+ * How urgently a status wants the developer, most urgent first.
+ *
+ * `blocked` is an agent waiting on input and `done` is finished work not yet
+ * picked up, so both need someone; `working` and `idle` do not. `unknown` is
+ * last because it carries no reading at all (ADR-0005).
+ */
+const AGENT_STATUS_URGENCY: readonly AgentStatus[] = ["blocked", "done", "working", "idle", "unknown"];
+
+/**
+ * The single agent status for a group of panes: the most urgent one any agent in
+ * it reports, or undefined when none of them runs an agent.
+ *
+ * This exists because `WorkspaceSnapshot.agent_status` is never pushed. Verified
+ * against Herdr 0.8.0: a 45-second listen on every global subscription saw 417
+ * `pane_updated` events carrying 8 agent-status changes, and zero
+ * `workspace_updated`. Reading Herdr's aggregate would therefore freeze a
+ * channel at whatever it was when the snapshot was last re-read, so the aggregate
+ * is recomputed from the panes that `pane_updated` does keep current.
+ *
+ * Only panes actually running an agent are counted. A pane with no agent reports
+ * `unknown` — four of five panes did on the live session — so counting them would
+ * drown a real reading in noise.
+ */
+export function agentStatusOfPanes(panes: readonly PaneSnapshot[]): AgentStatus | undefined {
+  let best: AgentStatus | undefined;
+  for (const pane of panes) {
+    if (!pane.agent) continue;
+    if (!best || urgencyOf(pane.agent_status) < urgencyOf(best)) best = pane.agent_status;
+  }
+  return best;
+}
+
+/** A status this protocol version does not know ranks last, never first. */
+function urgencyOf(status: AgentStatus): number {
+  const rank = AGENT_STATUS_URGENCY.indexOf(status);
+  return rank < 0 ? AGENT_STATUS_URGENCY.length : rank;
 }
 
 export function paneLabel(pane: PaneSnapshot | undefined, fallback: string): string {

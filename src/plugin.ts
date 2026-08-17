@@ -18,7 +18,7 @@ import { initialState, reduce, type State } from "./device/state.js";
 import { changedControls, surfaceOf, type ControlChange, type EncoderFace, type KeyFace, type Surface } from "./device/surface.js";
 import { encoderImage, keyImage } from "./device/paint.js";
 import { HerdrClient } from "./herdr/client.js";
-import { hasResolvedTheme, snapshotFromResult } from "./model.js";
+import { hasResolvedTheme, snapshotFromResult, worktreesFromResult } from "./model.js";
 import { copiedThemeFromHerdrConfig } from "./theme.js";
 
 /**
@@ -100,6 +100,11 @@ class Adapter {
         const theme = hasResolvedTheme(snapshot.theme) ? snapshot.theme : await copiedThemeFromHerdrConfig();
         this.dispatch({ kind: "herdr-snapshot", snapshot });
         this.dispatch({ kind: "theme-changed", theme });
+        return;
+      }
+      if (command.kind === "load-worktrees") {
+        const result = await this.herdr.request("worktree.list", { workspace_id: command.workspaceId });
+        this.dispatch({ kind: "herdr-worktrees", worktrees: worktreesFromResult(result) });
         return;
       }
       await this.herdr.request(command.method, command.params);

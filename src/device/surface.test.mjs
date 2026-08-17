@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { DEVICE_TYPE_XL } from "../../.preview/device/geometry.js";
+import { CHANNEL_COUNT, DEVICE_TYPE_XL, XL_LAYOUT, channelKeyIndex } from "../../.preview/device/geometry.js";
 import { initialState, reduce } from "../../.preview/device/state.js";
-import { changedControls, surfaceOf } from "../../.preview/device/surface.js";
+import { HEADER_ROW, changedControls, surfaceOf } from "../../.preview/device/surface.js";
+
+const capture = JSON.parse(readFileSync(new URL("../herdr/fixtures/capture.json", import.meta.url), "utf8"));
 
 function run(events, from = initialState()) {
   let state = from;
@@ -13,12 +16,24 @@ function run(events, from = initialState()) {
 
 const attachXl = { kind: "device-attached", device: { id: "xl-1", type: DEVICE_TYPE_XL } };
 
-function liveState({ workspaces = [], panes = [] } = {}) {
+function liveState({ workspaces = [], panes = [], worktrees = [] } = {}) {
   return run([
     attachXl,
     { kind: "herdr-connection", connected: true },
-    { kind: "herdr-snapshot", snapshot: { workspaces, panes, tabs: [] } }
+    { kind: "herdr-snapshot", snapshot: { workspaces, panes, tabs: [] } },
+    { kind: "herdr-worktrees", worktrees }
   ]);
+}
+
+/** A workspace exactly as Herdr sent one, so the shape is never invented. */
+function recordedWorkspace(overrides = {}) {
+  const event = capture.events.find((candidate) => candidate.event === "workspace_created");
+  return { ...structuredClone(event.data.workspace), ...overrides };
+}
+
+/** The three keys of one channel's header row, left to right. */
+function header(device, channel) {
+  return [0, 1, 2].map((column) => device.keys[channelKeyIndex(XL_LAYOUT, channel, column, HEADER_ROW)]);
 }
 
 test("no attached device means nothing to draw", () => {
@@ -44,9 +59,103 @@ test("the surface is declarative and carries no rendered image", () => {
   assert.ok(!serialised.includes("data:image"));
 });
 
-test("every key is blank until workstreams exist", () => {
+test("an unassigned channel invites a worktree rather than showing nothing", () => {
   const device = surfaceOf(liveState({ panes: [{ pane_id: "w1:p1" }] })).devices[0];
-  assert.ok(device.keys.every((key) => key.kind === "blank"));
+
+  for (let channel = 0; channel < CHANNEL_COUNT; channel++) {
+    assert.deepEqual(header(device, channel)[0], { kind: "empty", slot: channel });
+  }
+});
+
+test("three channels sit side by side in Herdr's workspace order", () => {
+  const workspaces = [1, 2, 3].map((number) =>
+    recordedWorkspace({ workspace_id: `w${number}`, number, label: `stream ${number}` })
+  );
+  const device = surfaceOf(liveState({ workspaces })).devices[0];
+
+  // The channel is the position, so a workstream is found by where it sits.
+  assert.deepEqual(
+    [0, 1, 2].map((channel) => header(device, channel)[0].label),
+    ["stream 1", "stream 2", "stream 3"]
+  );
+});
+
+test("each channel owns three columns and nothing outside them", () => {
+  const workspaces = [recordedWorkspace({ workspace_id: "w1", number: 1 })];
+  const device = surfaceOf(liveState({ workspaces })).devices[0];
+
+  // Only the first channel is bound, so columns 3 to 8 must hold no identity.
+  for (let column = 3; column < XL_LAYOUT.columns; column++) {
+    const face = device.keys[HEADER_ROW * XL_LAYOUT.columns + column];
+    assert.notEqual(face.kind, "status", `column ${column} belongs to another channel`);
+  }
+});
+
+test("a channel names its repository, its branch, and how it is doing", () => {
+  const workspace = recordedWorkspace({ workspace_id: "w6", number: 1 });
+  const worktreeEvent = capture.events.find((candidate) => candidate.event === "worktree_created");
+  const device = surfaceOf(
+    liveState({
+      workspaces: [workspace],
+      panes: [{ pane_id: "w6:p1", workspace_id: "w6", agent: "claude", agent_status: "blocked" }],
+      worktrees: [structuredClone(worktreeEvent.data.worktree)]
+    })
+  ).devices[0];
+
+  const [identity, branch, state] = header(device, 0);
+  assert.equal(identity.label, "fixture probe", "the label the developer chose leads");
+  assert.equal(identity.detail, "herdr-streamdeckplusxl", "the repository follows it");
+  assert.equal(branch.label, "sd-fixture-probe");
+  assert.deepEqual(state, { kind: "status", label: "BLOCKED", status: "blocked" });
+});
+
+test("every state carries its word, so colour is never the only reading", () => {
+  const workspace = recordedWorkspace({ workspace_id: "w6", number: 1 });
+  for (const status of ["idle", "working", "blocked", "done", "unknown"]) {
+    const device = surfaceOf(
+      liveState({
+        workspaces: [workspace],
+        panes: [{ pane_id: "w6:p1", workspace_id: "w6", agent: "claude", agent_status: status }]
+      })
+    ).devices[0];
+    assert.deepEqual(header(device, 0)[2], { kind: "status", label: status.toUpperCase(), status });
+  }
+});
+
+test("a workstream with no agent says so rather than reporting unknown", () => {
+  const workspace = recordedWorkspace({ workspace_id: "w6", number: 1 });
+  const device = surfaceOf(
+    liveState({ workspaces: [workspace], panes: [{ pane_id: "w6:p1", workspace_id: "w6", agent_status: "unknown" }] })
+  ).devices[0];
+
+  assert.deepEqual(header(device, 0)[2], { kind: "text", label: "NO AGENT" });
+});
+
+test("a workspace with no worktree is shown and labelled, never dropped", () => {
+  const workspace = recordedWorkspace({ workspace_id: "w6", number: 1, worktree: null, label: "primary" });
+  const device = surfaceOf(liveState({ workspaces: [workspace] })).devices[0];
+
+  const [identity, branch] = header(device, 0);
+  assert.equal(identity.label, "primary");
+  assert.equal(branch.label, "NO WORKTREE");
+});
+
+test("a branch not yet read reads as unknown, not as having no worktree", () => {
+  const workspace = recordedWorkspace({ workspace_id: "w6", number: 1 });
+  const device = surfaceOf(liveState({ workspaces: [workspace] })).devices[0];
+
+  assert.equal(header(device, 0)[1].label, "NO BRANCH");
+});
+
+test("everything below the header row is still blank, awaiting panes and controls", () => {
+  const workspaces = [recordedWorkspace({ workspace_id: "w1", number: 1 })];
+  const device = surfaceOf(liveState({ workspaces })).devices[0];
+
+  for (let row = HEADER_ROW + 1; row < XL_LAYOUT.rows; row++) {
+    for (let column = 0; column < XL_LAYOUT.columns; column++) {
+      assert.equal(device.keys[row * XL_LAYOUT.columns + column].kind, "blank");
+    }
+  }
 });
 
 test("the strip reports being offline before Herdr answers", () => {

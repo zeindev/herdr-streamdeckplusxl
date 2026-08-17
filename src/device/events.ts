@@ -1,5 +1,5 @@
 import type { HerdrEvent } from "../herdr/protocol.js";
-import type { HerdrSnapshot, ResolvedThemeSnapshot } from "../model.js";
+import type { HerdrSnapshot, ResolvedThemeSnapshot, WorktreeEntry } from "../model.js";
 
 /** A physical key, identified by the device it belongs to and where it sits. */
 export type KeyAddress = { deviceId: string; column: number; row: number };
@@ -21,6 +21,8 @@ export type DeviceEvent =
   | { kind: "device-detached"; deviceId: string }
   | { kind: "herdr-connection"; connected: boolean }
   | { kind: "herdr-snapshot"; snapshot: HerdrSnapshot }
+  /** A `worktree.list` reply, which is the only place a branch is reported. */
+  | { kind: "herdr-worktrees"; worktrees: WorktreeEntry[] }
   /** `at` is stamped by the adapter so the reducer needs no clock of its own. */
   | { kind: "herdr-event"; event: HerdrEvent; at: number }
   | { kind: "theme-changed"; theme: ResolvedThemeSnapshot | null }
@@ -36,4 +38,9 @@ export type DeviceEvent =
 export type Command =
   /** Read Herdr's whole state, which is the only source of truth (ADR-0004). */
   | { kind: "load-snapshot" }
+  /**
+   * Read one repository's worktrees, to learn its branches. The snapshot does not
+   * carry them, so this is a second read rather than a redundant one.
+   */
+  | { kind: "load-worktrees"; workspaceId: string }
   | { kind: "herdr-request"; method: string; params: Record<string, unknown> };

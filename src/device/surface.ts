@@ -1,12 +1,22 @@
-import { keyCount, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
+import type { AgentStatus } from "../model.js";
+import { CHANNEL_COUNT, channelKeyIndex, keyCount, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
 import type { State } from "./state.js";
+import { channelWorkstreams, workstreamsOf, type Workstream } from "./workstream.js";
 
 /**
  * What a control shows, described rather than drawn. Turning a face into pixels
  * is the renderer's job, so nothing here contains an image and this whole module
  * can be tested by comparing plain values.
+ *
+ * A `status` face always carries the word as well as the status, so the reading
+ * survives for anyone who cannot tell the outline colours apart.
  */
-export type KeyFace = { kind: "blank" } | { kind: "text"; label: string; detail?: string };
+export type KeyFace =
+  | { kind: "blank" }
+  | { kind: "text"; label: string; detail?: string }
+  | { kind: "status"; label: string; status: AgentStatus }
+  /** An unassigned channel, which invites a worktree rather than showing nothing. */
+  | { kind: "empty"; slot: number };
 
 /**
  * An encoder and the touch-strip region above it are one control on the
@@ -26,13 +36,24 @@ export type Surface = { devices: DeviceSurface[] };
 const BLANK: KeyFace = { kind: "blank" };
 
 /**
+ * The row of a channel that carries who the workstream is and how it is doing.
+ *
+ * Row 0 for now. ADR-0003 gives the top three rows to panes and puts identity on
+ * the strip, so this row returns to panes once the strip carries identity
+ * permanently — until then it is the only place a channel can be read.
+ */
+export const HEADER_ROW = 0;
+
+/**
  * Projects state onto every attached device.
  *
- * Deliberately almost empty: the keys stay blank until workstreams exist, and
- * the strip shows only enough for the connection to be visibly alive. What this
- * establishes is the geometry and the seam, not the product.
+ * The three channels are the whole reading: each one names its workstream, its
+ * branch, and its aggregate agent state, and the three are compared by looking
+ * across. Pane keys, the control row, and the permanent strip status arrive in
+ * later tickets, so everything below the header row is still blank.
  */
 export function surfaceOf(state: State): Surface {
+  const workstreams = channelWorkstreams(workstreamsOf(state.snapshot, state.branches), CHANNEL_COUNT);
   const devices: DeviceSurface[] = [];
   for (const device of state.devices) {
     const layout = layoutForDeviceType(device.type);
@@ -40,11 +61,52 @@ export function surfaceOf(state: State): Surface {
     devices.push({
       deviceId: device.id,
       layout: layout.kind,
-      keys: Array.from({ length: keyCount(layout) }, () => BLANK),
+      keys: keysOf(layout, workstreams),
       encoders: encodersOf(state, layout)
     });
   }
   return { devices };
+}
+
+function keysOf(layout: DeviceLayout, workstreams: ReadonlyArray<Workstream | null>): KeyFace[] {
+  const keys = Array.from({ length: keyCount(layout) }, () => BLANK);
+  for (let channel = 0; channel < CHANNEL_COUNT; channel++) {
+    const header = headerOf(channel, workstreams[channel] ?? null);
+    for (let column = 0; column < header.length; column++) {
+      keys[channelKeyIndex(layout, channel, column, HEADER_ROW)] = header[column];
+    }
+  }
+  return keys;
+}
+
+/**
+ * A channel's header, left to right: who it is, which branch, and how it is
+ * doing. Three keys, so each reading has a fixed position and the same reading
+ * sits at the same place in all three channels.
+ */
+function headerOf(channel: number, workstream: Workstream | null): KeyFace[] {
+  if (!workstream) return [{ kind: "empty", slot: channel }, BLANK, BLANK];
+  const worktree = workstream.worktree;
+  // The label leads and the repository follows: a monorepo hosts several
+  // workstreams at once, so the repository name alone can name all three
+  // channels identically while the label is what the developer chose.
+  const repository = worktree?.repoName;
+  return [
+    detail(workstream.label, repository === workstream.label ? undefined : repository),
+    // A workspace that is not a checkout Herdr tracks says so, rather than
+    // silently showing no branch and looking identical to one still loading.
+    { kind: "text", label: worktree ? worktree.branch ?? "NO BRANCH" : "NO WORKTREE" },
+    stateFace(workstream.agentStatus)
+  ];
+}
+
+function detail(label: string, context: string | undefined): KeyFace {
+  return context ? { kind: "text", label, detail: context } : { kind: "text", label };
+}
+
+/** No agent is a reading of its own, not an unknown one. */
+function stateFace(status: AgentStatus | undefined): KeyFace {
+  return status ? { kind: "status", label: status.toUpperCase(), status } : { kind: "text", label: "NO AGENT" };
 }
 
 function encodersOf(state: State, layout: DeviceLayout): EncoderFace[] {

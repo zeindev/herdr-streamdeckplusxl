@@ -3,6 +3,13 @@ import { MOTION_BASE_WIDTH, type AgentStatus, type PaneSnapshot, type ResolvedTh
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const monoFont = `font-family="Consolas" font-weight="700"`;
 
+/**
+ * Where a label may wrap. The slash is included because branch names are the
+ * longest labels the device shows and nearly all of them carry one; without it
+ * `feat/auth-rewrite` breaks mid-word.
+ */
+const WORD_BREAK = /[-_/\s]/u;
+
 export const MOTION_CYCLE_FRAMES = 21;
 
 type KeyView = {
@@ -212,7 +219,7 @@ function splitLabel(value: string, width: number): string[] {
     let [line, tail] = splitLabelLine(rest, width);
     if (displayWidth(tail) > width * (remainingLines - 1)) {
       [line, tail] = splitAtWidth(rest, width);
-      tail = tail.replace(/^[-_\s]+/u, "").trim();
+      tail = tail.replace(/^[-_/\s]+/u, "").trim();
     }
     lines.push(line);
     rest = tail;
@@ -231,7 +238,7 @@ function splitLabelLine(value: string, width: number): [string, string] {
   const hardLength = graphemes(hardLine).length;
   let breakAt = -1;
   for (let index = hardLength - 1; index >= 0; index--) {
-    if (/[-_\s]/u.test(characters[index])) {
+    if (WORD_BREAK.test(characters[index])) {
       breakAt = index;
       break;
     }
@@ -244,7 +251,7 @@ function splitLabelLine(value: string, width: number): [string, string] {
     ];
   }
   const rest = characters.slice(hardLength);
-  if (rest[0] && /[-_\s]/u.test(rest[0])) rest.shift();
+  if (rest[0] && WORD_BREAK.test(rest[0])) rest.shift();
   return [hardLine, rest.join("").trim()];
 }
 

@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { RESYNC_DEBOUNCE_MS, initialState, reduce } from "../../.preview/device/state.js";
 import { DEVICE_TYPE_XL } from "../../.preview/device/geometry.js";
+import { workstreamsOf } from "../../.preview/device/workstream.js";
 
 const capture = JSON.parse(readFileSync(new URL("../herdr/fixtures/capture.json", import.meta.url), "utf8"));
 
@@ -259,6 +260,162 @@ test("the theme is carried on state so rendering never reaches for it", () => {
   const theme = { name: "catppuccin", appearance: "dark", palette: {} };
   const { state } = run([{ kind: "theme-changed", theme }]);
   assert.equal(state.theme.name, "catppuccin");
+});
+
+/** A workspace exactly as Herdr sent one, so the shape is never invented. */
+function recordedWorkspace(overrides = {}) {
+  const event = capture.events.find((candidate) => candidate.event === "workspace_created");
+  assert.ok(event?.data?.workspace, "the capture has no workspace_created to test with");
+  return { ...structuredClone(event.data.workspace), ...overrides };
+}
+
+function recordedWorktree() {
+  const event = capture.events.find((candidate) => candidate.event === "worktree_created");
+  assert.ok(event?.data?.worktree, "the capture has no worktree_created to test with");
+  return structuredClone(event.data.worktree);
+}
+
+function paneUpdate(pane, at = 0) {
+  return { kind: "herdr-event", at, event: { event: "pane_updated", data: { type: "pane_updated", pane } } };
+}
+
+test("a snapshot asks for the branches the snapshot itself does not carry", () => {
+  const workspace = recordedWorkspace({ workspace_id: "w6" });
+  assert.ok(!("branch" in workspace.worktree), "Herdr's snapshot worktree has no branch to read");
+
+  const { commands } = run([
+    { kind: "herdr-connection", connected: true },
+    snapshotOf({ workspaces: [workspace] })
+  ]);
+  assert.deepEqual(
+    commands.filter((command) => command.kind === "load-worktrees"),
+    [{ kind: "load-worktrees", workspaceId: "w6" }]
+  );
+});
+
+test("workspaces sharing a repository cost one read between them", () => {
+  const { commands } = run([
+    { kind: "herdr-connection", connected: true },
+    snapshotOf({
+      workspaces: [
+        recordedWorkspace({ workspace_id: "w4", number: 1 }),
+        recordedWorkspace({ workspace_id: "w6", number: 2 })
+      ]
+    })
+  ]);
+  assert.equal(commands.filter((command) => command.kind === "load-worktrees").length, 1);
+});
+
+test("a branch is kept beside the snapshot, so a re-read does not lose it", () => {
+  const workspace = recordedWorkspace({ workspace_id: "w6" });
+  const worktree = recordedWorktree();
+
+  const learnt = run([
+    { kind: "herdr-connection", connected: true },
+    snapshotOf({ workspaces: [workspace] }),
+    { kind: "herdr-worktrees", worktrees: [worktree] }
+  ]);
+  assert.equal(learnt.state.branches[worktree.path], "sd-fixture-probe");
+
+  const reread = run([snapshotOf({ workspaces: [workspace] })], learnt.state);
+  assert.equal(reread.state.branches[worktree.path], "sd-fixture-probe", "the branch survives a new snapshot");
+});
+
+test("branches of checkouts no workspace holds are not kept", () => {
+  const workspace = recordedWorkspace({ workspace_id: "w6" });
+  const worktree = recordedWorktree();
+
+  const learnt = run([
+    { kind: "herdr-connection", connected: true },
+    snapshotOf({ workspaces: [workspace] }),
+    // A repository normally has worktrees nothing is open on; those cannot reach
+    // a channel, so remembering them would only grow the map.
+    { kind: "herdr-worktrees", worktrees: [worktree, { path: "/elsewhere", branch: "stray" }] }
+  ]);
+  assert.equal(learnt.state.branches["/elsewhere"], undefined);
+
+  const closed = run([snapshotOf({ workspaces: [] })], learnt.state);
+  assert.deepEqual(closed.state.branches, {}, "a closed workstream takes its branch with it");
+});
+
+test("a worktree reply that changes nothing leaves the state alone, so nothing redraws", () => {
+  const workspace = recordedWorkspace({ workspace_id: "w6" });
+  const worktree = recordedWorktree();
+  const learnt = run([
+    { kind: "herdr-connection", connected: true },
+    snapshotOf({ workspaces: [workspace] }),
+    { kind: "herdr-worktrees", worktrees: [worktree] }
+  ]).state;
+
+  const again = reduce(learnt, { kind: "herdr-worktrees", worktrees: [worktree] });
+  assert.equal(again.state, learnt, "an identical answer must not look like a change");
+});
+
+test("a workstream appearing shows up on the next snapshot", () => {
+  const first = run([
+    { kind: "herdr-connection", connected: true },
+    snapshotOf({ workspaces: [recordedWorkspace({ workspace_id: "w4", number: 1 })] })
+  ]);
+  assert.equal(workstreamsOf(first.state.snapshot).length, 1);
+
+  const second = run(
+    [
+      snapshotOf({
+        workspaces: [
+          recordedWorkspace({ workspace_id: "w4", number: 1 }),
+          recordedWorkspace({ workspace_id: "w6", number: 2 })
+        ]
+      })
+    ],
+    first.state
+  );
+  assert.deepEqual(
+    workstreamsOf(second.state.snapshot).map((workstream) => workstream.workspaceId),
+    ["w4", "w6"]
+  );
+});
+
+test("a workstream changing state redraws from the event stream, with no snapshot read", () => {
+  // This is the whole point of recomputing the aggregate: Herdr pushes
+  // pane_updated and never workspace_updated, so nothing else would move.
+  const live = run([
+    { kind: "herdr-connection", connected: true },
+    snapshotOf({
+      workspaces: [recordedWorkspace({ workspace_id: "w6", number: 1 })],
+      panes: [{ pane_id: "w6:p1", workspace_id: "w6", agent: "claude", agent_status: "working", revision: 1 }]
+    })
+  ]).state;
+  assert.equal(workstreamsOf(live.snapshot)[0].agentStatus, "working");
+
+  const blocked = run(
+    [paneUpdate({ pane_id: "w6:p1", workspace_id: "w6", agent: "claude", agent_status: "blocked", revision: 2 })],
+    live
+  );
+  assert.equal(workstreamsOf(blocked.state.snapshot)[0].agentStatus, "blocked");
+  assert.deepEqual(blocked.commands, [], "no read was needed, so none was asked for");
+});
+
+test("a workstream disappearing leaves its channel empty rather than stale", () => {
+  const live = run([
+    { kind: "herdr-connection", connected: true },
+    snapshotOf({
+      workspaces: [recordedWorkspace({ workspace_id: "w6", number: 1 })],
+      panes: [{ pane_id: "w6:p1", workspace_id: "w6", agent: "claude", agent_status: "working" }]
+    })
+  ]).state;
+
+  const closed = run([snapshotOf({ workspaces: [], panes: [] })], live);
+  assert.deepEqual(workstreamsOf(closed.state.snapshot), []);
+});
+
+test("closing a workspace schedules the re-read that empties its channel", () => {
+  const live = run([
+    { kind: "herdr-connection", connected: true },
+    snapshotOf({ workspaces: [recordedWorkspace({ workspace_id: "w6", number: 1 })] })
+  ]).state;
+
+  const { commands } = run([recorded("workspace_closed"), { kind: "tick", at: RESYNC_DEBOUNCE_MS + 1 }], live);
+  assert.deepEqual(commands, [{ kind: "load-snapshot" }]);
 });
 
 test("every recorded event kind can be applied to a live state without throwing", () => {

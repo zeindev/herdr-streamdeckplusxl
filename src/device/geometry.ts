@@ -37,6 +37,29 @@ export const XL_LAYOUT: DeviceLayout = {
   encodersPerChannel: 2
 };
 
+/**
+ * Channels on the device, and therefore workstreams the instrument can show at
+ * once. Always three: the cap is enforced by the layout rather than by
+ * willpower, and a fourth workstream becomes a counted overflow (ADR-0009).
+ */
+export const CHANNEL_COUNT = 3;
+
+/** The channel a key belongs to, from the index the SDK addresses it by. */
+export function channelOfKeyIndex(layout: DeviceLayout, index: number): number {
+  return Math.floor(keyAddress(layout, index).column / layout.columnsPerChannel);
+}
+
+/** The absolute key index of a position inside a channel. */
+export function channelKeyIndex(layout: DeviceLayout, channel: number, column: number, row: number): number {
+  return row * layout.columns + channel * layout.columnsPerChannel + column;
+}
+
+/** The encoders a channel owns, in left-to-right order. */
+export function channelEncoderIndices(layout: DeviceLayout, channel: number): number[] {
+  const first = channel * layout.encodersPerChannel;
+  return Array.from({ length: layout.encodersPerChannel }, (_, offset) => first + offset);
+}
+
 export function layoutForDeviceType(deviceType: number): DeviceLayout | null {
   return deviceType === DEVICE_TYPE_XL ? XL_LAYOUT : null;
 }

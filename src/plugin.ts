@@ -14,6 +14,7 @@ import streamDeck, {
 } from "@elgato/streamdeck";
 import type { JsonObject } from "@elgato/utils";
 
+import { readAcknowledged, storedAcknowledged } from "./device/attention.js";
 import type { Command, DeviceEvent } from "./device/events.js";
 import { keyAddress, layoutForDeviceType, type DeviceLayout } from "./device/geometry.js";
 import { readRoles, storedRoles } from "./device/role.js";
@@ -83,7 +84,12 @@ class Adapter {
   private async loadSlots(): Promise<void> {
     try {
       const stored = await streamDeck.settings.getGlobalSettings();
-      this.dispatch({ kind: "settings-loaded", slots: readSlots(stored), roles: readRoles(stored) });
+      this.dispatch({
+        kind: "settings-loaded",
+        slots: readSlots(stored),
+        roles: readRoles(stored),
+        acknowledged: readAcknowledged(stored)
+      });
     } catch (error) {
       // An unreadable setting costs the remembered geography, not the device.
       streamDeck.logger.error(`Could not read slot assignments: ${(error as Error).message}`);
@@ -150,6 +156,10 @@ class Adapter {
       }
       if (command.kind === "save-roles") {
         await this.saveSettings(storedRoles(command.roles));
+        return;
+      }
+      if (command.kind === "save-acknowledged") {
+        await this.saveSettings(storedAcknowledged(command.acknowledged));
         return;
       }
       await this.herdr.request(command.method, command.params);

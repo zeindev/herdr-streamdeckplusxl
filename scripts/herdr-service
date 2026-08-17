@@ -1,0 +1,90 @@
+#!/bin/sh
+#
+# herdr-service — run a service and declare a bad exit to the Stream Deck.
+#
+#   herdr-service dev npm run dev
+#   herdr-service api cargo run
+#
+# Why this exists. The Stream Deck raises attention when something needs the
+# developer, and a service that died is the clearest case of that. Herdr cannot
+# report it: `pane_exited` carries no exit status, and probing a running Herdr
+# 0.8.0 showed the pane leaves the session the instant its process ends — so
+# there is neither a code to read nor a pane left to read it from. Closing a
+# pane on purpose and a dev server crashing are the same event from the same
+# path. Nothing downstream can separate them, so the separation is made here,
+# where the exit status is actually known (ADR-0005: attention is declared,
+# never inferred).
+#
+# What it declares. A workspace token `sd_exit_<name>`, whose value is the exit
+# status. The workspace rather than the pane, because a pane's tokens die with
+# the pane; a workspace survives its panes and Herdr pushes the change live.
+# The token is cleared on every start, so restarting the service is what
+# resolves the attention item — nothing has to be dismissed by hand.
+#
+# What counts as a bad exit. Anything nonzero except a deliberate stop: 130 is
+# Ctrl-C, 143 is SIGTERM, 129 is the hangup a pane sends when it closes. Those
+# three are the developer stopping the service, and reporting them would make
+# the surface cry wolf every time a pane was closed — the exact failure this
+# whole approach exists to avoid.
+#
+# Outside Herdr it runs the command and declares nothing, so the same command
+# line works in CI and in a plain terminal.
+
+set -u
+
+TOKEN_PREFIX='sd_exit_'
+# 32 characters is Herdr's limit for a token name, and the prefix takes 8.
+MAX_NAME_LENGTH=24
+SOURCE='streamdeck-service'
+
+usage() {
+  echo "usage: herdr-service <name> <command> [args...]" >&2
+  echo "  <name>  what to call this service: letters, digits, _ or -, up to ${MAX_NAME_LENGTH}" >&2
+}
+
+if [ $# -lt 2 ]; then
+  usage
+  exit 2
+fi
+
+name=$1
+shift
+
+# Refused rather than corrected. A silently truncated or rewritten name would
+# collide with another service's, and two services reported as one is worse than
+# being told to pick a different name once, at the moment it is set up.
+case $name in
+  '' | *[!A-Za-z0-9_-]*)
+    echo "herdr-service: '${name}' is not a usable name: letters, digits, _ and - only" >&2
+    usage
+    exit 2
+    ;;
+esac
+
+if [ ${#name} -gt "$MAX_NAME_LENGTH" ]; then
+  echo "herdr-service: '${name}' is ${#name} characters; Herdr allows ${MAX_NAME_LENGTH}" >&2
+  exit 2
+fi
+
+token="${TOKEN_PREFIX}${name}"
+
+# A declaration that cannot be delivered must never stop the service running.
+# The developer asked to run a dev server; the Stream Deck is the accessory.
+declare_to_herdr() {
+  [ -n "${HERDR_WORKSPACE_ID:-}" ] || return 0
+  herdr workspace report-metadata "$HERDR_WORKSPACE_ID" --source "$SOURCE" "$@" >/dev/null 2>&1 || true
+}
+
+# Starting clears whatever the last run left behind, which is what makes a
+# restart resolve the attention item on its own.
+declare_to_herdr --clear-token "$token"
+
+"$@"
+status=$?
+
+case $status in
+  0 | 129 | 130 | 143) ;;
+  *) declare_to_herdr --token "${token}=${status}" ;;
+esac
+
+exit $status

@@ -2,9 +2,9 @@
   <rect width="1436" height="774" fill="#141414"/>
   <svg x="14" y="14" width="144" height="144" viewBox="0 0 144 144">
     <rect width="144" height="144" fill="#000000"/>
-    <rect x="4" y="4" width="136" height="136" rx="18" fill="none" stroke="rgb(223 142 29)" stroke-width="5"/>
+    <rect x="4" y="4" width="136" height="136" rx="18" fill="none" stroke="rgb(223 142 29)" stroke-width="5"/><circle cx="118" cy="26" r="10" fill="rgb(223 142 29)"/>
     <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(113 115 136)" text-anchor="middle">claude</text>
-    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">AGENT</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">NEEDS YOU</text>
   </svg>
   <svg x="172" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="330" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>

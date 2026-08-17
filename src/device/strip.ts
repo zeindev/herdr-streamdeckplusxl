@@ -1,5 +1,6 @@
 import type { PaneSnapshot } from "../model.js";
 import { READING_GAP, displayWidth, truncateMiddle } from "../text.js";
+import type { AttentionItem } from "./attention.js";
 import type { Workstream } from "./workstream.js";
 
 /**
@@ -77,6 +78,8 @@ export type StripBlockOptions = {
   reserved?: number;
   /** A message to show instead of the readings. */
   notice?: string | null;
+  /** What is asking for the developer in this workstream, already narrowed to it. */
+  attention?: readonly AttentionItem[];
 };
 
 /**
@@ -88,12 +91,16 @@ export type StripBlockOptions = {
 export function stripBlockOf(
   workstream: Workstream | null,
   panes: readonly PaneSnapshot[],
-  { reserved = 0, notice = null }: StripBlockOptions = {}
+  { reserved = 0, notice = null, attention = [] }: StripBlockOptions = {}
 ): StripBlock {
   if (!workstream) return { branch: null, readings: [], notice };
   const branch = truncateMiddle(branchTextOf(workstream), BRANCH_CELLS);
   if (notice) return { branch, readings: [], notice };
-  return { branch, readings: fitted(candidatesFor(workstream, panes), READING_CELLS - reserved), notice: null };
+  return {
+    branch,
+    readings: fitted(candidatesFor(workstream, panes, attention), READING_CELLS - reserved),
+    notice: null
+  };
 }
 
 /**
@@ -119,31 +126,36 @@ function branchTextOf(workstream: Workstream): string {
  * later, at the width their real values will need, so `-wl7` filling them in
  * changes what they say and not where anything sits.
  */
-function candidatesFor(workstream: Workstream, panes: readonly PaneSnapshot[]): Candidate[] {
+function candidatesFor(
+  workstream: Workstream,
+  panes: readonly PaneSnapshot[],
+  attention: readonly AttentionItem[]
+): Candidate[] {
   const mine = panes.filter((pane) => pane.workspace_id === workstream.workspaceId);
+  const exited = attention.filter((item) => item.reason === "exited").length;
   return [
-    { label: "ATTN", value: String(needingAttention(mine)), required: true, reserve: 1 },
+    { label: "ATTN", value: String(attention.length), required: true, reserve: 1 },
     { label: "TKT", value: UNKNOWN, required: true, reserve: 1 },
     // Four cells is what the layout can promise a pull request without costing
     // the optional reading below, so `-wl7` has to say its state in four: OPEN,
     // DRFT, or a number. Going wider is allowed and simply spends AGENTS, which
     // is what being the droppable one means.
     { label: "PR", value: UNKNOWN, required: true, reserve: 4 },
+    // A dead service is the one attention item with no key of its own, because
+    // its pane left the session when its process did. Without this the count
+    // would go up and nothing anywhere would say what to look at.
+    //
+    // Droppable even so, and the arithmetic is why: the three required readings
+    // and this one come to 30 cells, but the last channel keeps only 23 once the
+    // overflow count takes its share (ADR-0011). Marking it required would not
+    // buy the space, it would only overrun into the overflow count, and two
+    // readings drawn over each other are both unreadable — strictly worse than
+    // one of them missing. So in that one corner it gives way and ATTN carries
+    // the fact alone. It sits after the reserved fields, so `-wl7` filling those
+    // in never moves it, and before AGENTS, which is what it spends first.
+    ...(exited > 0 ? [{ label: "EXIT", value: String(exited), required: false, reserve: 1 }] : []),
     { label: "AGENTS", value: String(mine.filter((pane) => pane.agent).length), required: false, reserve: 1 }
   ];
-}
-
-/**
- * Panes wanting the developer right now.
- *
- * `blocked` is an agent waiting on input and `done` is finished work nobody has
- * picked up; both need someone, and ADR-0005 calls exactly these two the native
- * floor. Herdr has no concept of acknowledged, so a `done` agent keeps asking
- * until its pane moves on — which is the honest reading until unseen-ness is
- * tracked.
- */
-function needingAttention(panes: readonly PaneSnapshot[]): number {
-  return panes.filter((pane) => pane.agent && (pane.agent_status === "blocked" || pane.agent_status === "done")).length;
 }
 
 /**

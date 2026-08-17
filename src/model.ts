@@ -74,6 +74,18 @@ export type WorkspaceSnapshot = {
   agent_status?: AgentStatus;
   /** Null for a workspace that is not a checkout Herdr tracks. */
   worktree?: WorkspaceWorktreeSnapshot | null;
+  /**
+   * Tokens anything has attached to the workspace with `workspace.report_metadata`.
+   *
+   * A workspace is the only entity a declaration about a dead process can live
+   * on. Probing a running Herdr showed a pane and all of its tokens leave the
+   * session the instant its process ends, while a workspace and its tokens
+   * survive their panes — so this is where `sd_exit_*` is read from.
+   *
+   * Absent rather than empty when there are none: Herdr omits the field, and a
+   * cleared token is reported by omitting it again.
+   */
+  tokens?: Record<string, string>;
 };
 
 /**

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { CHANNEL_COUNT, DEVICE_TYPE_XL, XL_LAYOUT, channelKeyIndex } from "../../.preview/device/geometry.js";
+import { readSlots } from "../../.preview/device/slots.js";
 import { initialState, reduce } from "../../.preview/device/state.js";
 import { changedControls, surfaceOf } from "../../.preview/device/surface.js";
 import { recordedWorkspace, recordedWorktree } from "../herdr/fixtures/recorded.mjs";
@@ -347,4 +348,153 @@ test("a change names the device and index so the adapter can address it", () => 
   assert.equal(change.deviceId, "xl-1");
   assert.equal(typeof change.index, "number");
   assert.ok(change.face);
+});
+
+/**
+ * Attention on the surface: what a key shows, and what the strip counts.
+ *
+ * The device's whole promise is that a glance across it says which workstream
+ * is asking. These assert the described faces, never the pixels.
+ */
+
+/** A live state whose stored acknowledgements are already in place. */
+function liveStateSeen({ workspaces = [], panes = [], acknowledged = [] } = {}) {
+  return run([
+    attachXl,
+    { kind: "settings-loaded", slots: readSlots(undefined), roles: {}, acknowledged },
+    { kind: "herdr-connection", connected: true },
+    { kind: "herdr-snapshot", snapshot: { workspaces, panes, tabs: [] } }
+  ]);
+}
+
+const readingOf = (face, label) => face.block.readings.find((reading) => reading.label === label)?.value;
+
+test("an agent waiting on input is marked on its own key", () => {
+  const [device] = surfaceOf(
+    liveState({
+      workspaces: [workspaceOn(1, "auth")],
+      panes: [paneOn("w1", "a", { agent: "claude", agent_status: "blocked" })]
+    })
+  ).devices;
+
+  const [face] = rowOf(device, 0, 0);
+  assert.equal(face.kind, "pane");
+  assert.equal(face.attention, "waiting");
+  assert.equal(face.status, "blocked", "the status is still reported; asking is a separate fact");
+});
+
+test("a finished agent asks on its key until it is acknowledged, and stays finished after", () => {
+  const asking = surfaceOf(
+    liveStateSeen({
+      workspaces: [workspaceOn(1, "auth")],
+      panes: [paneOn("w1", "a", { agent: "claude", agent_status: "done" })]
+    })
+  ).devices[0];
+  assert.equal(rowOf(asking, 0, 0)[0].attention, "finished");
+
+  const seen = surfaceOf(
+    liveStateSeen({
+      workspaces: [workspaceOn(1, "auth")],
+      panes: [paneOn("w1", "a", { agent: "claude", agent_status: "done" })],
+      acknowledged: ["w1:a"]
+    })
+  ).devices[0];
+  const face = rowOf(seen, 0, 0)[0];
+  assert.equal(face.attention, undefined, "it has stopped asking");
+  assert.equal(face.status, "done", "but it has not stopped being finished");
+});
+
+test("a service key is never marked, since Herdr reports no state for one", () => {
+  const [device] = surfaceOf(
+    liveState({
+      workspaces: [workspaceOn(1, "auth")],
+      panes: [paneOn("w1", "sh", { agent_status: "blocked" })]
+    })
+  ).devices;
+  assert.equal(rowOf(device, 0, 2)[0].attention, undefined);
+});
+
+test("a workstream's outstanding attention is on its strip with no press at all", () => {
+  const [device] = surfaceOf(
+    liveState({
+      workspaces: [workspaceOn(1, "auth"), workspaceOn(2, "billing")],
+      panes: [
+        paneOn("w1", "a", { agent: "claude", agent_status: "blocked" }),
+        paneOn("w1", "b", { agent: "claude", agent_status: "done" }),
+        paneOn("w2", "a", { agent: "claude", agent_status: "working" })
+      ]
+    })
+  ).devices;
+
+  assert.equal(readingOf(device.encoders[0], "ATTN"), "2");
+  assert.equal(readingOf(device.encoders[2], "ATTN"), "0", "the quiet stream says so rather than saying nothing");
+});
+
+test("acknowledging takes the count down as well as the mark", () => {
+  const panes = [paneOn("w1", "a", { agent: "claude", agent_status: "done" })];
+  const asking = surfaceOf(liveStateSeen({ workspaces: [workspaceOn(1, "auth")], panes })).devices[0];
+  const seen = surfaceOf(
+    liveStateSeen({ workspaces: [workspaceOn(1, "auth")], panes, acknowledged: ["w1:a"] })
+  ).devices[0];
+
+  assert.equal(readingOf(asking.encoders[0], "ATTN"), "1");
+  assert.equal(readingOf(seen.encoders[0], "ATTN"), "0");
+});
+
+test("a dead service is counted and named on the strip, because it has no key to land on", () => {
+  // The one attention item with nowhere else to go: its pane left the session
+  // with its process. Without EXIT the count would rise and nothing anywhere
+  // would say what to look at.
+  const crashed = { ...workspaceOn(1, "auth"), tokens: { sd_exit_dev: "1", sd_exit_api: "137" } };
+  const [device] = surfaceOf(liveState({ workspaces: [crashed], panes: [paneOn("w1", "sh")] })).devices;
+
+  assert.equal(readingOf(device.encoders[0], "ATTN"), "2");
+  assert.equal(readingOf(device.encoders[0], "EXIT"), "2");
+});
+
+test("EXIT appears only when a service has died, and spends the droppable reading", () => {
+  const quiet = surfaceOf(liveState({ workspaces: [workspaceOn(1, "auth")], panes: [] })).devices[0];
+  assert.deepEqual(
+    quiet.encoders[0].block.readings.map((reading) => reading.label),
+    ["ATTN", "TKT", "PR", "AGENTS"]
+  );
+
+  const crashed = { ...workspaceOn(1, "auth"), tokens: { sd_exit_dev: "1" } };
+  const loud = surfaceOf(liveState({ workspaces: [crashed], panes: [] })).devices[0];
+  assert.deepEqual(
+    loud.encoders[0].block.readings.map((reading) => reading.label),
+    ["ATTN", "TKT", "PR", "EXIT"],
+    "the reserved fields keep their place; AGENTS is what gives way"
+  );
+});
+
+test("attention changing redraws only the controls that moved", () => {
+  const workspaces = [workspaceOn(1, "auth"), workspaceOn(2, "billing")];
+  const quiet = liveState({
+    workspaces,
+    panes: [paneOn("w1", "a", { agent: "claude", agent_status: "working", revision: 1 })]
+  });
+  const asking = run(
+    [
+      {
+        kind: "herdr-event",
+        at: 0,
+        event: {
+          event: "pane_updated",
+          data: {
+            type: "pane_updated",
+            pane: paneOn("w1", "a", { agent: "claude", agent_status: "blocked", revision: 2 })
+          }
+        }
+      }
+    ],
+    quiet
+  );
+
+  const changes = changedControls(surfaceOf(quiet), surfaceOf(asking));
+  assert.deepEqual(
+    changes.map((change) => `${change.control}:${change.index}`),
+    ["key:0", "encoder:0", "encoder:1"],
+    "the pane's key and its own channel's two regions, and nothing belonging to another stream"
+  );
 });

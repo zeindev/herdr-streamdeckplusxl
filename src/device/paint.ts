@@ -1,7 +1,21 @@
 import type { ResolvedThemeSnapshot } from "../model.js";
 import { keySvg, stripRegionSvg } from "../render.js";
+import type { PaneAttention } from "./attention.js";
 import type { DeviceLayout } from "./geometry.js";
 import type { EncoderFace, KeyFace } from "./surface.js";
+
+/**
+ * What a key says when it is asking.
+ *
+ * Plain words rather than the internal names: `waiting` is a reason in the
+ * model, but "NEEDS YOU" is what the developer has to act on. A dead service has
+ * no entry because it has no key — `PaneAttention` excludes it, so this record
+ * cannot grow one by accident.
+ */
+const ATTENTION_WORDS: Record<PaneAttention, string> = {
+  waiting: "NEEDS YOU",
+  finished: "FINISHED"
+};
 
 /**
  * Turns described faces into images.
@@ -26,7 +40,18 @@ function keyView(face: KeyFace): Parameters<typeof keySvg>[0] {
     case "pane":
       // The role is the footer and the status drives the outline, so a pane says
       // what it is and how it is doing without relying on colour alone.
-      return { label: face.label, detail: face.role.toUpperCase(), ...(face.status ? { status: face.status } : {}) };
+      //
+      // A pane that is asking spends its footer on saying so, and takes a mark in
+      // the corner as well. Two carriers rather than one: the word survives for
+      // anyone who cannot separate the outline colours, and the mark is what
+      // catches the eye from across a desk. The role is what gives way, because
+      // the row the key sits on already says it.
+      return {
+        label: face.label,
+        detail: face.attention ? ATTENTION_WORDS[face.attention] : face.role.toUpperCase(),
+        ...(face.status ? { status: face.status } : {}),
+        ...(face.attention ? { attention: true } : {})
+      };
     case "more":
       // A count of what the row had no key for, named so the number is not bare.
       return { label: "MORE", count: face.count };

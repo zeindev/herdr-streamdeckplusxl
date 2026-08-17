@@ -25,6 +25,8 @@ type KeyView = {
   selected?: boolean;
   empty?: boolean;
   danger?: boolean;
+  /** This key is asking for the developer. Drawn as a mark, not only a colour. */
+  attention?: boolean;
   feedback?: "success";
   workingFrame?: number;
   workingMotion?: WorkingMotion;
@@ -79,6 +81,13 @@ export function keySvg(view: KeyView, theme?: ResolvedThemeSnapshot | null): str
     ? `<rect ${keyOutlineGeometry()} fill="none" stroke="${outlineColor}" stroke-width="${view.danger ? 7 : statusVisual?.width ?? 5}"${statusVisual?.dash ? ` stroke-dasharray="${statusVisual.dash}"` : ""}/>`
     : "";
   const workingHighlight = workingAnimation(view, theme);
+  // A filled disc in the corner, which is the one mark on this device that means
+  // nothing else. The footer already carries the word, so the key says it twice
+  // and neither carrier is colour: the shape reads at a glance from across a
+  // desk, and the word survives for anyone who cannot separate the outlines.
+  const attention = view.attention && !feedbackColor
+    ? `<circle cx="118" cy="26" r="10" fill="${outlineColor ?? oledForeground(theme, "text")}"/>`
+    : "";
   const empty = view.empty ? `<path d="M57 76H87M72 61V91" stroke="${subtext}" stroke-width="6" stroke-linecap="round"/>` : "";
   const footerValue = (view.detail || view.context)?.replaceAll(" › ", " · ");
   const footer = footerValue
@@ -93,7 +102,7 @@ export function keySvg(view: KeyView, theme?: ResolvedThemeSnapshot | null): str
       <text x="72" y="116" ${monoFont} font-size="72" fill="${statusVisual?.color ?? text}" text-anchor="middle">${view.count}</text>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
     <rect width="144" height="144" fill="${feedbackColor ?? "#000000"}"/>
-    ${selection}${outline}${workingHighlight}${slot}
+    ${selection}${outline}${workingHighlight}${slot}${attention}
     ${label}
     ${footer}${empty}
   </svg>`;

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { HOLD_MS, RESYNC_DEBOUNCE_MS, initialState, reduce } from "../../.preview/device/state.js";
+import { attentionOf } from "../../.preview/device/attention.js";
 import { overflowOf, readSlots } from "../../.preview/device/slots.js";
 import { roleResolver } from "../../.preview/device/role.js";
 import { DEVICE_TYPE_XL } from "../../.preview/device/geometry.js";
@@ -451,7 +452,7 @@ test("a workstream keeps its channel when an earlier one closes", () => {
 });
 
 test("assignments read back from settings put the channels where they were", () => {
-  const stored = { kind: "settings-loaded", roles: {}, slots: readSlots({ slots: [null, "checkout:/w/billing", "checkout:/w/auth"] }) };
+  const stored = { kind: "settings-loaded", roles: {}, acknowledged: [], slots: readSlots({ slots: [null, "checkout:/w/billing", "checkout:/w/auth"] }) };
   const restored = run([xl, stored]);
   assert.deepEqual(restored.state.slots.bindings, [null, "checkout:/w/billing", "checkout:/w/auth"]);
 
@@ -463,7 +464,7 @@ test("assignments read back from settings put the channels where they were", () 
 });
 
 test("a workstream the stored settings never mentioned takes a free channel", () => {
-  const restored = run([xl, { kind: "settings-loaded", roles: {}, slots: readSlots({ slots: [null, "checkout:/w/billing", null] }) }]);
+  const restored = run([xl, { kind: "settings-loaded", roles: {}, acknowledged: [], slots: readSlots({ slots: [null, "checkout:/w/billing", null] }) }]);
   const live = liveWith([workspaceOn(1, "auth"), workspaceOn(2, "billing")], restored.state);
 
   assert.deepEqual(live.state.slots.bindings, ["checkout:/w/auth", "checkout:/w/billing", null]);
@@ -669,7 +670,7 @@ test("holding a pane key corrects its role, and the correction is persisted", ()
 });
 
 test("a correction is remembered by command line, so it survives the pane restarting", () => {
-  const corrected = { kind: "settings-loaded", slots: readSlots(undefined), roles: { "vitest --watch": "server" } };
+  const corrected = { kind: "settings-loaded", slots: readSlots(undefined), roles: { "vitest --watch": "server" }, acknowledged: [] };
   const restored = run([xl, corrected]);
 
   // The same command comes back in a pane with a different id after a restart.
@@ -732,4 +733,166 @@ test("every recorded event kind can be applied to a live state without throwing"
     assert.ok(step.state, `${event.event} produced no state`);
     assert.ok(Array.isArray(step.commands));
   }
+});
+
+/**
+ * Attention: the three signals arriving, resolving, and being acknowledged.
+ *
+ * All three go through the reducer rather than the attention module directly,
+ * because what the ticket promises is that the *device* stops needing to be
+ * polled — and that only holds if the events Herdr actually sends move it.
+ */
+
+/** What the device says is asking, across every workstream. */
+const askingIn = (state) => attentionOf(state.snapshot, state.acknowledged);
+
+test("an agent blocking on input raises attention from a live pane update", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude", revision: 1 })]).state;
+  assert.deepEqual(askingIn(live), [], "an agent that has said nothing wants nobody");
+
+  const blocked = run(
+    [paneUpdate({ ...paneOn("w1", "a", { agent: "claude" }), agent_status: "blocked", revision: 2 })],
+    live
+  ).state;
+  assert.deepEqual(askingIn(blocked).map((item) => item.reason), ["waiting"]);
+});
+
+test("an agent answered stops asking on its own, with nothing to clear by hand", () => {
+  const live = liveWith2(
+    [workspaceOn(1, "auth")],
+    [paneOn("w1", "a", { agent: "claude", agent_status: "blocked", revision: 1 })]
+  ).state;
+  assert.equal(askingIn(live).length, 1);
+
+  const answered = run(
+    [paneUpdate({ ...paneOn("w1", "a", { agent: "claude" }), agent_status: "working", revision: 2 })],
+    live
+  ).state;
+  assert.deepEqual(askingIn(answered), []);
+});
+
+test("tapping a finished agent acknowledges it, and the acknowledgement is persisted", () => {
+  const live = run(
+    [runningIn("w1:a", "claude")],
+    liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude", agent_status: "done" })]).state
+  ).state;
+  assert.deepEqual(askingIn(live).map((item) => item.reason), ["finished"]);
+
+  const key = keyAt(0, 0, 0);
+  const tapped = run([{ kind: "key-down", key, at: 100 }, { kind: "key-up", key, at: 200 }], live);
+
+  assert.deepEqual(askingIn(tapped.state), [], "going to look at it is what marks it seen");
+  assert.deepEqual(tapped.commands, [
+    { kind: "herdr-request", method: "pane.focus", params: { pane_id: "w1:a" } },
+    { kind: "save-acknowledged", acknowledged: ["w1:a"] }
+  ]);
+});
+
+test("acknowledging survives a restart, since Herdr keeps reporting done forever", () => {
+  const restored = run([
+    xl,
+    { kind: "settings-loaded", slots: readSlots(undefined), roles: {}, acknowledged: ["w1:a"] }
+  ]);
+  const live = run(
+    [
+      { kind: "herdr-connection", connected: true },
+      snapshotOf({
+        workspaces: [workspaceOn(1, "auth")],
+        panes: [paneOn("w1", "a", { agent: "claude", agent_status: "done" })]
+      })
+    ],
+    restored.state
+  ).state;
+
+  assert.deepEqual(askingIn(live), [], "work dealt with yesterday must not ask again today");
+});
+
+test("a stored acknowledgement is not thrown away just because the snapshot has not arrived", () => {
+  // Settings load before Herdr answers. Pruning against an empty session would
+  // wipe every mark and then write the loss back, so the device would ask again
+  // about everything on every start.
+  const restored = run([
+    xl,
+    { kind: "settings-loaded", slots: readSlots(undefined), roles: {}, acknowledged: ["w1:a"] }
+  ]);
+  assert.deepEqual(restored.state.acknowledged, ["w1:a"]);
+  assert.deepEqual(restored.commands.filter((command) => command.kind === "save-acknowledged"), []);
+});
+
+test("an agent that finishes a second time asks again, from a pane update alone", () => {
+  // The case a naive mark would swallow: agent status arrives on pane_updated,
+  // which schedules no snapshot re-read, so if the mark were only pruned on a
+  // re-read the second completion could stay silent indefinitely.
+  const live = run(
+    [runningIn("w1:a", "claude")],
+    liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude", agent_status: "done", revision: 1 })])
+      .state
+  ).state;
+
+  const key = keyAt(0, 0, 0);
+  const seen = run([{ kind: "key-down", key, at: 100 }, { kind: "key-up", key, at: 200 }], live).state;
+  assert.deepEqual(askingIn(seen), []);
+
+  const working = run(
+    [paneUpdate({ ...paneOn("w1", "a", { agent: "claude" }), agent_status: "working", revision: 2 }, 300)],
+    seen
+  );
+  assert.deepEqual(working.state.acknowledged, [], "leaving done spends the mark");
+  assert.deepEqual(working.commands, [{ kind: "save-acknowledged", acknowledged: [] }]);
+
+  const again = run(
+    [paneUpdate({ ...paneOn("w1", "a", { agent: "claude" }), agent_status: "done", revision: 3 }, 400)],
+    working.state
+  ).state;
+  assert.deepEqual(askingIn(again).map((item) => item.reason), ["finished"], "the second finish is heard");
+});
+
+test("a pane that closes takes its acknowledgement with it rather than accumulating", () => {
+  const live = run(
+    [runningIn("w1:a", "claude")],
+    liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude", agent_status: "done" })]).state
+  ).state;
+  const key = keyAt(0, 0, 0);
+  const seen = run([{ kind: "key-down", key, at: 100 }, { kind: "key-up", key, at: 200 }], live).state;
+  assert.deepEqual(seen.acknowledged, ["w1:a"]);
+
+  const gone = run([snapshotOf({ workspaces: [workspaceOn(1, "auth")], panes: [] })], seen);
+  assert.deepEqual(gone.state.acknowledged, []);
+  assert.deepEqual(gone.commands.filter((command) => command.kind === "save-acknowledged"), [
+    { kind: "save-acknowledged", acknowledged: [] }
+  ]);
+});
+
+test("a nonzero exit declared on the workstream raises attention; a clean one does not", () => {
+  // pane_exited cannot carry this. It has no exit status, and the pane it names
+  // leaves the session with its process, so the declaration lives on the
+  // workspace — which survives its panes and is pushed live.
+  const crashed = { ...workspaceOn(1, "auth"), tokens: { sd_exit_dev: "1" } };
+  const clean = { ...workspaceOn(1, "auth"), tokens: { sd_exit_dev: "0" } };
+
+  const bad = liveWith2([crashed], [paneOn("w1", "sh")]).state;
+  assert.deepEqual(askingIn(bad), [{ workspaceId: "w1", reason: "exited", service: "dev", status: "1" }]);
+
+  const good = liveWith2([clean], [paneOn("w1", "sh")]).state;
+  assert.deepEqual(askingIn(good), []);
+});
+
+test("a service coming back clears its own declaration, so nothing is dismissed by hand", () => {
+  const crashed = { ...workspaceOn(1, "auth"), tokens: { sd_exit_dev: "1" } };
+  const live = liveWith2([crashed], [paneOn("w1", "sh")]).state;
+  assert.equal(askingIn(live).length, 1);
+
+  // Herdr reports a cleared token by omitting the field, and the metadata event
+  // is structural, so the next snapshot is what the device sees.
+  const restarted = run([snapshotOf({ workspaces: [workspaceOn(1, "auth")], panes: [paneOn("w1", "sh")] })], live);
+  assert.deepEqual(askingIn(restarted.state), []);
+});
+
+test("a workspace token change is structural, so the device re-reads and sees it", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "sh")]).state;
+  const declared = run(
+    [recorded("workspace_metadata_updated"), { kind: "tick", at: RESYNC_DEBOUNCE_MS + 1 }],
+    live
+  );
+  assert.deepEqual(declared.commands, [{ kind: "load-snapshot" }]);
 });

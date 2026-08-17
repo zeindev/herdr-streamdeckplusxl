@@ -1,5 +1,6 @@
 import type { HerdrEvent } from "../herdr/protocol.js";
 import type { HerdrSnapshot, PaneProcessInfo, ResolvedThemeSnapshot, WorktreeEntry } from "../model.js";
+import type { Acknowledged } from "./attention.js";
 import type { RoleOverrides } from "./role.js";
 import type { Slots } from "./slots.js";
 
@@ -33,8 +34,11 @@ export type DeviceEvent =
   /** `at` is stamped by the adapter so the reducer needs no clock of its own. */
   | { kind: "herdr-event"; event: HerdrEvent; at: number }
   | { kind: "theme-changed"; theme: ResolvedThemeSnapshot | null }
-  /** Geography and role corrections read back from storage when the plugin starts. */
-  | { kind: "settings-loaded"; slots: Slots; roles: RoleOverrides }
+  /**
+   * Geography, role corrections, and acknowledged work, read back from storage
+   * when the plugin starts.
+   */
+  | { kind: "settings-loaded"; slots: Slots; roles: RoleOverrides; acknowledged: Acknowledged }
   /** `at` is stamped by the adapter, so a hold can be told from a tap. */
   | { kind: "key-down"; key: KeyAddress; at: number }
   | { kind: "key-up"; key: KeyAddress; at: number }
@@ -72,4 +76,10 @@ export type Command =
   | { kind: "load-process-info"; paneId: string }
   /** Persist role corrections, which outlive the panes they were made on. */
   | { kind: "save-roles"; roles: RoleOverrides }
+  /**
+   * Persist which finished work has been seen. Herdr reports `done` and has no
+   * concept of acknowledged, so without this every restart would ask again about
+   * work the developer dealt with yesterday.
+   */
+  | { kind: "save-acknowledged"; acknowledged: Acknowledged }
   | { kind: "herdr-request"; method: string; params: Record<string, unknown> };

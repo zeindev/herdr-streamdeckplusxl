@@ -24,7 +24,6 @@ const UNCAPTURED = {
   pane_agent_status_changed: "only offered as a per-pane subscription",
   // Simply not provoked by the capture run yet.
   workspace_updated: "not provoked",
-  workspace_metadata_updated: "not provoked",
   workspace_moved: "needs a reorder gesture",
   workspace_reordered: "needs a reorder gesture",
   worktree_opened: "not provoked",
@@ -58,10 +57,30 @@ test("the capture covers the events the workstream model is built on", () => {
     "pane_exited",
     "tab_created",
     "tab_closed",
-    "layout_updated"
+    "layout_updated",
+    "workspace_metadata_updated"
   ]) {
     assert.ok(capturedKinds.has(required), `expected ${required} in the capture`);
   }
+});
+
+test("a workspace token is pushed live, which is what a dead service can be declared on", () => {
+  // Recorded against a running Herdr, because the whole crashed-service signal
+  // rests on it. -3rd found workspace_updated is never emitted, so if setting a
+  // token were silent too the plugin could never learn a service had died. It is
+  // not silent: workspace_metadata_updated carries the whole workspace, tokens
+  // included, and clearing a token pushes again with the field simply absent.
+  const updates = fixture.events
+    .filter((event) => event.event === "workspace_metadata_updated")
+    .map((event) => event.data.workspace);
+
+  const set = updates.find((workspace) => workspace.tokens);
+  assert.ok(set, "one push must carry tokens");
+  assert.equal(set.tokens.sd_exit_dev, "1", "the value is the exit status, as a string");
+
+  const cleared = updates.find((workspace) => !workspace.tokens);
+  assert.ok(cleared, "clearing a token pushes too, or a resolved exit would never leave");
+  assert.equal("tokens" in cleared, false, "a cleared token is an absent field, not an empty object");
 });
 
 test("uncaptured event kinds are accounted for, so coverage gaps stay visible", () => {

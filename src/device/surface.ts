@@ -1,4 +1,5 @@
 import type { AgentStatus, PaneSnapshot } from "../model.js";
+import { attentionByPane, attentionIn, attentionOf, type AttentionItem, type PaneAttention } from "./attention.js";
 import { CHANNEL_COUNT, channelKeyIndex, keyCount, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
 import type { PaneCell } from "./panes.js";
 import { paneKeyLabel } from "./panes.js";
@@ -26,8 +27,13 @@ export type KeyFace =
    * A pane with no agent has no state to report: Herdr says `unknown` for every
    * one of them, and drawing that as a reading would put a marked outline on
    * every service in every channel while saying nothing at all.
+   *
+   * `attention` is separate from `status` because the two are different facts.
+   * A finished agent stays finished after the developer has looked at it; what
+   * changes is that it has stopped asking. Folding the two together would mean
+   * either lying about the status or never being able to stop asking.
    */
-  | { kind: "pane"; label: string; role: Role; status?: AgentStatus }
+  | { kind: "pane"; label: string; role: Role; status?: AgentStatus; attention?: PaneAttention }
   /** Panes a row had no key for. A count, never silence. */
   | { kind: "more"; count: number }
   /** An unassigned channel, which invites a worktree rather than showing nothing. */
@@ -76,6 +82,10 @@ export function surfaceOf(state: State): Surface {
   const workstreams = channelWorkstreams(state.slots, present);
   const overflow = overflowOf(state.slots, present).length;
   const panes = state.snapshot?.panes ?? [];
+  // Worked out once for the whole device rather than per channel: the keys and
+  // the strip must agree about what is asking, or a key would show something the
+  // count beside it did not include.
+  const attention = attentionOf(state.snapshot, state.acknowledged);
   const devices: DeviceSurface[] = [];
   for (const device of state.devices) {
     const layout = layoutForDeviceType(device.type);
@@ -83,8 +93,8 @@ export function surfaceOf(state: State): Surface {
     devices.push({
       deviceId: device.id,
       layout: layout.kind,
-      keys: keysOf(state, layout, workstreams),
-      encoders: encodersOf(layout, workstreams, panes, overflow, noticeFor(state))
+      keys: keysOf(state, layout, workstreams, attentionByPane(attention)),
+      encoders: encodersOf(layout, workstreams, panes, overflow, noticeFor(state), attention)
     });
   }
   return { devices };
@@ -93,7 +103,8 @@ export function surfaceOf(state: State): Surface {
 function keysOf(
   state: State,
   layout: DeviceLayout,
-  workstreams: ReadonlyArray<Workstream | null>
+  workstreams: ReadonlyArray<Workstream | null>,
+  attention: ReadonlyMap<string, PaneAttention>
 ): KeyFace[] {
   const keys = Array.from({ length: keyCount(layout) }, () => BLANK);
   for (let channel = 0; channel < CHANNEL_COUNT; channel++) {
@@ -105,18 +116,24 @@ function keysOf(
     }
     channelRowsOf(state, layout, channel).forEach((row, rowIndex) =>
       row.forEach((cell, column) => {
-        if (cell) keys[channelKeyIndex(layout, channel, column, rowIndex)] = paneFace(cell, state.processes);
+        if (cell) keys[channelKeyIndex(layout, channel, column, rowIndex)] = paneFace(cell, state.processes, attention);
       })
     );
   }
   return keys;
 }
 
-function paneFace(cell: PaneCell, processes: PaneProcesses): KeyFace {
+function paneFace(
+  cell: PaneCell,
+  processes: PaneProcesses,
+  attention: ReadonlyMap<string, PaneAttention>
+): KeyFace {
   if (cell.kind === "more") return { kind: "more", count: cell.count };
   const label = paneKeyLabel(cell.pane, processes[cell.pane.pane_id] ?? undefined, cell.role);
-  if (!cell.pane.agent) return { kind: "pane", label, role: cell.role };
-  return { kind: "pane", label, role: cell.role, status: cell.pane.agent_status };
+  const asking = attention.get(cell.pane.pane_id);
+  const raised = asking ? { attention: asking } : {};
+  if (!cell.pane.agent) return { kind: "pane", label, role: cell.role, ...raised };
+  return { kind: "pane", label, role: cell.role, status: cell.pane.agent_status, ...raised };
 }
 
 /**
@@ -134,14 +151,16 @@ function encodersOf(
   workstreams: ReadonlyArray<Workstream | null>,
   panes: readonly PaneSnapshot[],
   overflow: number,
-  notice: string | null
+  notice: string | null,
+  attention: readonly AttentionItem[]
 ): EncoderFace[] {
   const last = layout.encoders - 1;
   const lastChannel = Math.floor(last / layout.encodersPerChannel);
   const blocks = workstreams.map((workstream, channel) =>
     stripBlockOf(workstream, panes, {
       reserved: !notice && overflow > 0 && channel === lastChannel ? OVERFLOW_CELLS : 0,
-      notice
+      notice,
+      attention: attentionIn(attention, workstream?.workspaceId ?? null)
     })
   );
 

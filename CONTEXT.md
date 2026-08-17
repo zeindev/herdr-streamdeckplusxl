@@ -79,5 +79,9 @@ The number of workstreams that exist but hold no slot. Counted and shown, never 
 _Avoid_: Extra, backlog, queue, hidden workstreams
 
 **Attention item**:
-Something that needs the developer, regardless of which workstream it belongs to.
+Something that needs the developer, regardless of which workstream it belongs to. Exactly three raise one: an agent *waiting* on input, an agent *finished* and not yet acknowledged, and a service that *exited* badly and declared it. Every one is declared by something that knows, never inferred from terminal text (ADR-0005).
 _Avoid_: Notification, alert, inbox item, event
+
+**Acknowledged**:
+Finished work the developer has already looked at, so it has stopped asking without having stopped being finished. Tapping the pane key is the act, since that tap already focuses the pane. It is spent when the agent leaves `done`, so a second completion asks again.
+_Avoid_: Dismissed, cleared, read, seen, snoozed

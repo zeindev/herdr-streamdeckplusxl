@@ -10,6 +10,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 
 import { copiedHerdrTheme } from "../.preview/herdr-themes.js";
 import { DEVICE_TYPE_XL, XL_LAYOUT } from "../.preview/device/geometry.js";
+import { readSlots } from "../.preview/device/slots.js";
 import { initialState, reduce } from "../.preview/device/state.js";
 import { surfaceOf } from "../.preview/device/surface.js";
 import { encoderImage, keyImage } from "../.preview/device/paint.js";
@@ -56,12 +57,28 @@ function live(workspaces, panes, branches, processes = {}) {
     { kind: "herdr-connection", connected: true },
     { kind: "herdr-snapshot", snapshot: { workspaces, tabs: [], panes } },
     { kind: "herdr-worktrees", worktrees: Object.entries(branches).map(([path, branch]) => ({ path, branch })) },
-    ...Object.entries(processes).map(([paneId, cmdline]) => ({
-      kind: "herdr-process-info",
-      paneId,
-      process: { pid: 1, name: "x", argv0: cmdline.split(" ")[0], cmdline }
-    }))
+    ...Object.entries(processes).map(([paneId, cmdline]) => runningIn(paneId, cmdline))
   ]);
+}
+
+/**
+ * A `pane.process_info` reply, in the envelope the reducer actually reads.
+ *
+ * The whole envelope under `info`, not a bare process under `process`:
+ * `foreground_process_group_id` is what says which entry identifies the pane.
+ * The wrong shape type-checks in a .mjs file and silently delivers nothing,
+ * which had left every pane in this preview drawn as a shell.
+ */
+function runningIn(paneId, cmdline) {
+  return {
+    kind: "herdr-process-info",
+    paneId,
+    info: {
+      pane_id: paneId,
+      foreground_process_group_id: 1,
+      foreground_processes: [{ pid: 1, name: "x", argv0: cmdline.split(" ")[0], cmdline }]
+    }
+  };
 }
 
 /** A pane running something, as Herdr reports one. */
@@ -108,6 +125,57 @@ const crowdedScene = live(
   Object.fromEntries([1, 2, 3, 4, 5].map((n) => [`w1:t${n}`, "vitest --watch"]))
 );
 
+/**
+ * The three attention signals at once, and the difference acknowledging makes.
+ *
+ * Channel 1 has an agent waiting on input and a dev server that died and said
+ * so. Channel 2's agent has finished and nobody has looked. Channel 3's agent
+ * has also finished and has been acknowledged, so it is still done but has
+ * stopped asking — the pair is the point, since one is the other with the mark
+ * and the word removed.
+ */
+const attentionScene = apply(
+  [
+    attach,
+    { kind: "settings-loaded", slots: readSlots(undefined), roles: {}, acknowledged: ["w3:p1"] },
+    { kind: "herdr-connection", connected: true },
+    {
+      kind: "herdr-snapshot",
+      snapshot: {
+        workspaces: [
+          { ...workspace(1, "auth rewrite", "/w/auth-rewrite"), tokens: { sd_exit_dev: "1" } },
+          workspace(2, "billing api", "/w/billing-api"),
+          workspace(3, "search perf", "/w/search-perf")
+        ],
+        tabs: [],
+        panes: [
+          agentPane("w1", 1, "blocked"),
+          pane("w1", "test"),
+          pane("w1", "sh"),
+          agentPane("w2", 1, "done"),
+          pane("w2", "dev"),
+          agentPane("w3", 1, "done"),
+          pane("w3", "sh")
+        ]
+      }
+    },
+    {
+      kind: "herdr-worktrees",
+      worktrees: [
+        { path: "/w/auth-rewrite", branch: "feat/auth-rewrite" },
+        { path: "/w/billing-api", branch: "feat/billing-api" },
+        { path: "/w/search-perf", branch: "perf/search" }
+      ]
+    },
+    ...Object.entries({
+      "w1:test": "vitest --watch",
+      "w1:sh": "-zsh",
+      "w2:dev": "next dev",
+      "w3:sh": "-zsh"
+    }).map(([paneId, cmdline]) => runningIn(paneId, cmdline))
+  ]
+);
+
 const scenes = {
   offline: apply([attach]),
   syncing: apply([attach, { kind: "herdr-connection", connected: true }]),
@@ -115,6 +183,7 @@ const scenes = {
   disconnected: apply([{ kind: "herdr-connection", connected: false }], liveScene),
   // Three workstreams, one per channel, each in a different state.
   live: liveScene,
+  attention: attentionScene,
   crowded: crowdedScene,
   // The awkward cases: one channel unassigned and offering a worktree, one
   // workspace with no worktree, and a workstream whose panes run no agent.
@@ -144,7 +213,7 @@ const scenes = {
 mkdirSync("artifacts", { recursive: true });
 for (const [name, state] of Object.entries(scenes)) {
   for (const [appearance, theme] of [["dark", dark], ["light", light]]) {
-    if (!["live", "partial", "overflow", "disconnected", "crowded"].includes(name) && appearance === "light") continue;
+    if (!["live", "attention", "partial", "overflow", "disconnected", "crowded"].includes(name) && appearance === "light") continue;
     writeFileSync(`artifacts/xl-${name}-${appearance}.svg`, devicePreview(state, theme));
   }
 }

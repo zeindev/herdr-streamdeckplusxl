@@ -1,5 +1,12 @@
 import type { HerdrEvent } from "../herdr/protocol.js";
 import type { HerdrSnapshot, PaneProcess, PaneSnapshot, ResolvedThemeSnapshot, WorktreeEntry } from "../model.js";
+import {
+  acknowledge,
+  acknowledges,
+  keepAcknowledged,
+  sameAcknowledged,
+  type Acknowledged
+} from "./attention.js";
 import { sameKey, type Command, type DeviceEvent, type DeviceInfo, type KeyAddress } from "./events.js";
 import { channelOfColumn, columnInChannel, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
 import { channelRows, type PaneCell } from "./panes.js";
@@ -56,6 +63,12 @@ export type State = {
   processes: PaneProcesses;
   /** Roles the developer corrected, keyed by command line. Durable. */
   roles: RoleOverrides;
+  /**
+   * Panes whose finished agent the developer has already looked at. Durable,
+   * because Herdr keeps reporting `done` and would otherwise ask again every
+   * time the plugin started.
+   */
+  acknowledged: Acknowledged;
   /** Keys currently held, with when the hold began. */
   pressed: PressedKey[];
   /** When a structural change was first seen, or null when nothing is pending. */
@@ -77,6 +90,7 @@ export function initialState(): State {
     slots: emptySlots(),
     processes: {},
     roles: {},
+    acknowledged: [],
     pressed: [],
     resyncRequestedAt: null
   };
@@ -132,6 +146,7 @@ export function reduce(state: State, event: DeviceEvent): Step {
       const snapshot = event.snapshot;
       const workstreams = workstreamsOf(snapshot);
       const slots = bind(forgetAbsent(state.slots, workstreams), workstreams);
+      const acknowledged = keepAcknowledged(state.acknowledged, snapshot);
       return {
         state: {
           ...state,
@@ -143,9 +158,11 @@ export function reduce(state: State, event: DeviceEvent): Step {
           // A pane that is gone can never be asked about again.
           processes: keepKnownPanes(state.processes, snapshot),
           slots,
+          acknowledged,
           resyncRequestedAt: null
         },
         commands: [
+          ...savedIfSeenChanged(state.acknowledged, acknowledged),
           // One read per repository, not per workstream: `worktree.list` answers
           // for a whole repository at once.
           ...oneWorkspacePerRepository(workstreams).map((workspaceId) => ({
@@ -165,10 +182,18 @@ export function reduce(state: State, event: DeviceEvent): Step {
       // Whatever was stored is the truth about geography; any workstream it does
       // not mention takes a free channel on the next snapshot.
       const slots = bind(event.slots, workstreamsOf(state.snapshot, state.branches));
+      // Stored acknowledgements can name panes that are already gone or already
+      // back at work, and they must not survive that — pruning here rather than
+      // waiting for the next snapshot means a stale mark can never swallow the
+      // first thing that finishes after a restart.
+      const acknowledged = keepAcknowledged(event.acknowledged, state.snapshot);
       return {
-        state: { ...state, slots, roles: event.roles },
+        state: { ...state, slots, roles: event.roles, acknowledged },
         // Only a binding this load actually added is worth writing back.
-        commands: savedIfChanged(event.slots, slots)
+        commands: [
+          ...savedIfChanged(event.slots, slots),
+          ...savedIfSeenChanged(event.acknowledged, acknowledged)
+        ]
       };
     }
 
@@ -229,11 +254,19 @@ export function reduce(state: State, event: DeviceEvent): Step {
       // A hold has already fired and taken its press with it, so anything still
       // held here was a tap. A tap on a pane focuses it in Herdr.
       const cell = cellAt(state, event.key);
-      const commands: Command[] =
-        cell?.kind === "pane"
-          ? [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: cell.pane.pane_id } }]
-          : [];
-      return { state: { ...state, pressed }, commands };
+      if (cell?.kind !== "pane") return { state: { ...state, pressed }, commands: [] };
+
+      // Going to look at finished work is what marks it seen, so the same tap
+      // does both. Anything else would be a second gesture for something the
+      // first one already accomplishes.
+      const acknowledged = acknowledges(cell.pane) ? acknowledge(state.acknowledged, cell.pane.pane_id) : state.acknowledged;
+      return {
+        state: { ...state, pressed, acknowledged },
+        commands: [
+          { kind: "herdr-request", method: "pane.focus", params: { pane_id: cell.pane.pane_id } },
+          ...savedIfSeenChanged(state.acknowledged, acknowledged)
+        ]
+      };
     }
 
     case "encoder-touch": {
@@ -263,7 +296,18 @@ function applyHerdrEvent(state: State, event: HerdrEvent, at: number): Step {
 
   if (event.event === "pane_updated") {
     const snapshot = withUpdatedPane(state.snapshot, event.data.pane);
-    return snapshot === state.snapshot ? { state, commands: [] } : { state: { ...state, snapshot }, commands: [] };
+    if (snapshot === state.snapshot) return { state, commands: [] };
+    // An agent leaving `done` un-acknowledges it, and this is the only path that
+    // sees it happen: agent status arrives on `pane_updated`, which is a delta
+    // and schedules no snapshot re-read. Pruning only on a re-read would leave a
+    // mark from the last completion sitting over the next one, possibly for a
+    // long time, and the second time an agent finished the device would say
+    // nothing.
+    const acknowledged = keepAcknowledged(state.acknowledged, snapshot);
+    return {
+      state: { ...state, snapshot, acknowledged },
+      commands: savedIfSeenChanged(state.acknowledged, acknowledged)
+    };
   }
 
   if (event.event === "pane_exited") {
@@ -293,6 +337,10 @@ function dueResync(state: State, at: number): Step {
 
 function savedIfChanged(before: Slots, after: Slots): Command[] {
   return sameSlots(before, after) ? [] : [{ kind: "save-slots", slots: after }];
+}
+
+function savedIfSeenChanged(before: Acknowledged, after: Acknowledged): Command[] {
+  return sameAcknowledged(before, after) ? [] : [{ kind: "save-acknowledged", acknowledged: after }];
 }
 
 /** The first key held past the friction threshold, if any. */

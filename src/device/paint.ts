@@ -20,7 +20,9 @@ function keyView(face: KeyFace): Parameters<typeof keySvg>[0] {
     case "blank":
       return { label: "", blank: true };
     case "empty":
-      return { label: "", empty: true, slot: face.slot };
+      // ADR-0009 wants an empty slot to invite a worktree, so it is worded as
+      // well as drawn — the plus glyph alone says nothing.
+      return { label: "", empty: true, slot: face.slot, detail: "NEW WORKTREE" };
     case "status":
       // The status word is the label, so the outline colour restates the reading
       // rather than being the only way to get it.

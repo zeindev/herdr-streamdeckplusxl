@@ -20,3 +20,9 @@ This makes the three-worktree limit enforced by the instrument rather than by wi
 - A forgotten fourth workstream is deliberately second-class. The overflow count is the only pressure to clean it up, so it must be visible rather than subtle. On an XL-only rig the rightmost strip region is a weaker home for it than a dedicated key would be; validate on hardware.
 - Slot assignment must survive Herdr and Stream Deck restarts, so it is durable plugin state rather than a workspace token (which dies with the workspace).
 - Reassigning a slot is disruptive by design and should carry friction.
+
+## Staged deviation, in force while ticket `-3rd` is the newest work
+
+Slot assignment **is not durable yet**. Channels currently take workstreams in Herdr's workspace `number` order and the first three win, which is the auto-fill this decision rejects: closing a low-numbered workstream slides every later one a channel to the left, and `workspace_reordered` and `workspace_moved` can move them too. A channel's meaning is therefore stable only while no workstream ends.
+
+This is a gap, not a change of mind. Durable assignment, the enforced cap, and the overflow count are ticket `-77f`, which is unblocked and holds a note pointing at the seam to replace (`workstreamsOf` and `channelWorkstreams` in `src/device/workstream.ts`). The empty-slot face already renders and already invites `worktree.create`, so what `-77f` adds is the assignment store, not the rendering.

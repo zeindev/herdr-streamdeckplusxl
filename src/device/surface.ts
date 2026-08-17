@@ -53,7 +53,7 @@ export const HEADER_ROW = 0;
  * later tickets, so everything below the header row is still blank.
  */
 export function surfaceOf(state: State): Surface {
-  const workstreams = channelWorkstreams(workstreamsOf(state.snapshot, state.branches), CHANNEL_COUNT);
+  const workstreams = channelWorkstreams(workstreamsOf(state.snapshot, state.branches));
   const devices: DeviceSurface[] = [];
   for (const device of state.devices) {
     const layout = layoutForDeviceType(device.type);
@@ -93,11 +93,20 @@ function headerOf(channel: number, workstream: Workstream | null): KeyFace[] {
   const repository = worktree?.repoName;
   return [
     detail(workstream.label, repository === workstream.label ? undefined : repository),
-    // A workspace that is not a checkout Herdr tracks says so, rather than
-    // silently showing no branch and looking identical to one still loading.
-    { kind: "text", label: worktree ? worktree.branch ?? "NO BRANCH" : "NO WORKTREE" },
+    { kind: "text", label: branchLabel(worktree) },
     stateFace(workstream.agentStatus)
   ];
+}
+
+/**
+ * Three different facts that would otherwise all read as "no branch": a
+ * workspace Herdr tracks no checkout for, a checkout sitting on no branch, and
+ * a checkout Herdr has not been asked about yet.
+ */
+function branchLabel(worktree: Workstream["worktree"]): string {
+  if (!worktree) return "NO WORKTREE";
+  if (worktree.branch === undefined) return "UNKNOWN";
+  return worktree.branch ?? "DETACHED";
 }
 
 function detail(label: string, context: string | undefined): KeyFace {

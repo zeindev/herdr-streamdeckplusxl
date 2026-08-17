@@ -5,14 +5,19 @@ import {
   type PaneSnapshot,
   type WorkspaceSnapshot
 } from "../model.js";
+import { CHANNEL_COUNT } from "./geometry.js";
 
 /**
  * What a workstream's checkout is, as the device needs it.
  *
  * `branch` is separate from the rest because Herdr reports it separately: the
- * snapshot's worktree block has no branch at all, so it stays null until a
- * `worktree.list` reply supplies one. A channel therefore renders correctly
- * before the branch is known rather than waiting for it.
+ * snapshot's worktree block has no branch at all, so it arrives only with a
+ * `worktree.list` reply. A channel therefore renders correctly before the branch
+ * is known rather than waiting for it.
+ *
+ * Its three values are three different facts, and the device says which:
+ * a name, `null` for a checkout on no branch at all, and `undefined` for one
+ * Herdr has not been asked about yet.
  */
 export type WorkstreamWorktree = {
   repoKey: string;
@@ -20,7 +25,7 @@ export type WorkstreamWorktree = {
   repoRoot: string;
   checkoutPath: string;
   isLinked: boolean;
-  branch: string | null;
+  branch: string | null | undefined;
 };
 
 /**
@@ -34,22 +39,29 @@ export type WorkstreamWorktree = {
 export type Workstream = {
   workspaceId: string;
   label: string;
-  paneCount: number;
   /** Undefined when no pane in the workspace runs an agent. */
   agentStatus: AgentStatus | undefined;
   worktree: WorkstreamWorktree | null;
 };
 
-/** Branches known so far, keyed by checkout path. */
-export type Branches = Readonly<Record<string, string>>;
+/**
+ * Branches Herdr has answered for, keyed by checkout path. A null value is an
+ * answer — a checkout on no branch — while a missing key means not yet asked.
+ */
+export type Branches = Readonly<Record<string, string | null>>;
 
 /**
  * Every workspace Herdr holds, as workstreams, in the order channels take them.
  *
- * Order is Herdr's workspace `number`, which is stable for the life of a
- * workspace, with the id breaking ties so the same snapshot always yields the
- * same order. Durable slot assignment, the three-slot cap, and the overflow
- * count belong to a later ticket; until then position follows this order.
+ * Order is Herdr's workspace `number`, with the id breaking ties so the same
+ * snapshot always yields the same order.
+ *
+ * That makes the order deterministic but **not** fixed: `workspace_reordered`
+ * and `workspace_moved` both exist, and closing a low-numbered workspace slides
+ * every later one along, which is exactly the shuffle ADR-0009 rejects
+ * auto-fill for. Durable slot assignment is that ADR's answer and belongs to the
+ * ticket that builds it; until then a channel's meaning is stable only while no
+ * workstream ends.
  */
 export function workstreamsOf(snapshot: HerdrSnapshot | null, branches: Branches = {}): Workstream[] {
   if (!snapshot) return [];
@@ -64,18 +76,15 @@ export function workstreamsOf(snapshot: HerdrSnapshot | null, branches: Branches
  * workstream holds null, which is what makes an empty slot a rendered thing
  * rather than an absence.
  */
-export function channelWorkstreams(workstreams: readonly Workstream[], channels: number): Array<Workstream | null> {
-  return Array.from({ length: channels }, (_, channel) => workstreams[channel] ?? null);
+export function channelWorkstreams(workstreams: readonly Workstream[]): Array<Workstream | null> {
+  return Array.from({ length: CHANNEL_COUNT }, (_, channel) => workstreams[channel] ?? null);
 }
 
 function toWorkstream(workspace: WorkspaceSnapshot, panes: PaneSnapshot[], branches: Branches): Workstream {
   const worktree = workspace.worktree;
   return {
     workspaceId: workspace.workspace_id,
-    label: workspace.label?.trim() || (workspace.number ? `SPACE ${workspace.number}` : workspace.workspace_id),
-    // The snapshot's own count is authoritative even when the pane list is
-    // partial, and the panes are the fallback when it is absent.
-    paneCount: workspace.pane_count ?? panes.length,
+    label: workspace.label?.trim() || (workspace.number ? `WORKSPACE ${workspace.number}` : workspace.workspace_id),
     agentStatus: agentStatusOfPanes(panes),
     worktree: worktree
       ? {
@@ -84,7 +93,7 @@ function toWorkstream(workspace: WorkspaceSnapshot, panes: PaneSnapshot[], branc
           repoRoot: worktree.repo_root,
           checkoutPath: worktree.checkout_path,
           isLinked: worktree.is_linked_worktree,
-          branch: branches[worktree.checkout_path] ?? null
+          branch: worktree.checkout_path in branches ? branches[worktree.checkout_path] : undefined
         }
       : null
   };
@@ -107,16 +116,15 @@ function byNumberThenId(left: WorkspaceSnapshot, right: WorkspaceSnapshot): numb
 }
 
 /**
- * The distinct repositories among these workstreams, each named by one of its
- * workspaces. `worktree.list` answers for a whole repository at once, so asking
- * once per repository rather than once per workstream is the same answer for
- * fewer requests.
+ * One workspace per distinct repository, which is how many `worktree.list` calls
+ * it takes to learn every branch: the call answers for a whole repository at
+ * once, so asking once per workstream would repeat the same answer.
  */
-export function repositoriesToQuery(workstreams: readonly Workstream[]): Array<{ repoKey: string; workspaceId: string }> {
+export function oneWorkspacePerRepository(workstreams: readonly Workstream[]): string[] {
   const byRepo = new Map<string, string>();
   for (const workstream of workstreams) {
     if (!workstream.worktree) continue;
     if (!byRepo.has(workstream.worktree.repoKey)) byRepo.set(workstream.worktree.repoKey, workstream.workspaceId);
   }
-  return [...byRepo].map(([repoKey, workspaceId]) => ({ repoKey, workspaceId }));
+  return [...byRepo.values()];
 }

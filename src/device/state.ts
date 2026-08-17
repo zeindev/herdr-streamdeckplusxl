@@ -2,7 +2,7 @@ import type { HerdrEvent } from "../herdr/protocol.js";
 import type { HerdrSnapshot, PaneSnapshot, ResolvedThemeSnapshot, WorktreeEntry } from "../model.js";
 import { sameKey, type Command, type DeviceEvent, type DeviceInfo, type KeyAddress } from "./events.js";
 import { layoutForDeviceType } from "./geometry.js";
-import { repositoriesToQuery, workstreamsOf, type Branches } from "./workstream.js";
+import { oneWorkspacePerRepository, workstreamsOf, type Branches } from "./workstream.js";
 
 /**
  * How long a burst of structural changes is allowed to settle before the truth
@@ -110,7 +110,7 @@ export function reduce(state: State, event: DeviceEvent): Step {
         },
         // One read per repository, not per workstream: `worktree.list` answers
         // for a whole repository at once.
-        commands: repositoriesToQuery(workstreams).map(({ workspaceId }) => ({
+        commands: oneWorkspacePerRepository(workstreams).map((workspaceId) => ({
           kind: "load-worktrees" as const,
           workspaceId
         }))
@@ -216,12 +216,15 @@ function keepKnownCheckouts(branches: Branches, snapshot: HerdrSnapshot): Branch
  */
 function withBranches(branches: Branches, worktrees: readonly WorktreeEntry[], snapshot: HerdrSnapshot | null): Branches {
   const wanted = checkoutPathsOf(snapshot);
-  let next: Record<string, string> | null = null;
+  let next: Record<string, string | null> | null = null;
   for (const worktree of worktrees) {
-    if (!worktree.branch || !wanted.has(worktree.path)) continue;
-    if (branches[worktree.path] === worktree.branch) continue;
+    if (!wanted.has(worktree.path)) continue;
+    // A worktree on no branch is an answer, not a missing one, so it is recorded
+    // as null rather than skipped: the device shows the two differently.
+    const branch = worktree.branch ?? null;
+    if (worktree.path in branches && branches[worktree.path] === branch) continue;
     next ??= { ...branches };
-    next[worktree.path] = worktree.branch;
+    next[worktree.path] = branch;
   }
   return next ?? branches;
 }

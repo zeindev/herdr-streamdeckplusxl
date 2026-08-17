@@ -4,7 +4,7 @@
     <rect width="144" height="144" fill="#000000"/>
     <text x="16" y="32" font-family="Consolas" font-weight="700" font-size="26" fill="rgb(166 173 200)">1</text>
     
-    <path d="M57 76H87M72 61V91" stroke="rgb(166 173 200)" stroke-width="6" stroke-linecap="round"/>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(166 173 200)" text-anchor="middle" letter-spacing=".1">NEW WORKTREE</text><path d="M57 76H87M72 61V91" stroke="rgb(166 173 200)" stroke-width="6" stroke-linecap="round"/>
   </svg>
   <svg x="172" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="330" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
@@ -12,7 +12,7 @@
     <rect width="144" height="144" fill="#000000"/>
     <text x="16" y="32" font-family="Consolas" font-weight="700" font-size="26" fill="rgb(166 173 200)">2</text>
     
-    <path d="M57 76H87M72 61V91" stroke="rgb(166 173 200)" stroke-width="6" stroke-linecap="round"/>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(166 173 200)" text-anchor="middle" letter-spacing=".1">NEW WORKTREE</text><path d="M57 76H87M72 61V91" stroke="rgb(166 173 200)" stroke-width="6" stroke-linecap="round"/>
   </svg>
   <svg x="646" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="804" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
@@ -20,7 +20,7 @@
     <rect width="144" height="144" fill="#000000"/>
     <text x="16" y="32" font-family="Consolas" font-weight="700" font-size="26" fill="rgb(166 173 200)">3</text>
     
-    <path d="M57 76H87M72 61V91" stroke="rgb(166 173 200)" stroke-width="6" stroke-linecap="round"/>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(166 173 200)" text-anchor="middle" letter-spacing=".1">NEW WORKTREE</text><path d="M57 76H87M72 61V91" stroke="rgb(166 173 200)" stroke-width="6" stroke-linecap="round"/>
   </svg>
   <svg x="1120" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="1278" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>

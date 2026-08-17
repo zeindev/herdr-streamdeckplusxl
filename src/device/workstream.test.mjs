@@ -1,25 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { agentStatusOfPanes } from "../../.preview/model.js";
-import { channelWorkstreams, repositoriesToQuery, workstreamsOf } from "../../.preview/device/workstream.js";
-
-const capture = JSON.parse(readFileSync(new URL("../herdr/fixtures/capture.json", import.meta.url), "utf8"));
-
-/** A workspace exactly as Herdr sent one, so the shape is never invented. */
-function recordedWorkspace(overrides = {}) {
-  const event = capture.events.find((candidate) => candidate.event === "workspace_created");
-  assert.ok(event?.data?.workspace, "the capture has no workspace_created to test with");
-  return { ...structuredClone(event.data.workspace), ...overrides };
-}
-
-/** The worktree Herdr reported alongside that workspace, branch included. */
-function recordedWorktree() {
-  const event = capture.events.find((candidate) => candidate.event === "worktree_created");
-  assert.ok(event?.data?.worktree, "the capture has no worktree_created to test with");
-  return structuredClone(event.data.worktree);
-}
+import { channelWorkstreams, oneWorkspacePerRepository, workstreamsOf } from "../../.preview/device/workstream.js";
+import { recordedWorkspace, recordedWorktree } from "../herdr/fixtures/recorded.mjs";
 
 const agentPane = (overrides) => ({ pane_id: "p", agent: "claude", agent_status: "idle", ...overrides });
 
@@ -39,7 +23,7 @@ test("the branch is unknown until worktree.list supplies it, because the snapsho
   assert.ok(!("branch" in workspace.worktree), "the recorded snapshot worktree carries no branch");
 
   const withoutBranch = workstreamsOf({ workspaces: [workspace], panes: [] })[0];
-  assert.equal(withoutBranch.worktree.branch, null);
+  assert.equal(withoutBranch.worktree.branch, undefined, "not asked is not the same as no branch");
 
   const worktree = recordedWorktree();
   const withBranch = workstreamsOf({ workspaces: [workspace], panes: [] }, { [worktree.path]: worktree.branch })[0];
@@ -54,7 +38,7 @@ test("a workspace with no worktree is a workstream that says so, not a missing o
   assert.equal(workstream.label, "primary", "it still has an identity to show");
 });
 
-test("channels take workstreams in Herdr's workspace order, which does not shuffle", () => {
+test("channels take workstreams in Herdr's workspace order, deterministically", () => {
   const workspaces = [
     recordedWorkspace({ workspace_id: "w9", number: 3, label: "third" }),
     recordedWorkspace({ workspace_id: "w4", number: 1, label: "first" }),
@@ -62,6 +46,11 @@ test("channels take workstreams in Herdr's workspace order, which does not shuff
   ];
   const order = workstreamsOf({ workspaces, panes: [] }).map((workstream) => workstream.label);
   assert.deepEqual(order, ["first", "second", "third"]);
+
+  // Deterministic, but not yet fixed: closing the first workstream slides the
+  // rest along. Durable slot assignment is ADR-0009's answer and is not built.
+  const afterClosing = workstreamsOf({ workspaces: workspaces.filter((w) => w.number !== 1), panes: [] });
+  assert.deepEqual(afterClosing.map((workstream) => workstream.label), ["second", "third"]);
 });
 
 test("the aggregate is recomputed from panes, because Herdr never pushes its own", () => {
@@ -123,6 +112,12 @@ test("an unrecognised status never outranks a known one", () => {
   assert.equal(status, "working");
 });
 
+test("a checkout Herdr says is on no branch is an answer, not a gap", () => {
+  const workspace = recordedWorkspace();
+  const detached = workstreamsOf({ workspaces: [workspace], panes: [] }, { [workspace.worktree.checkout_path]: null })[0];
+  assert.equal(detached.worktree.branch, null);
+});
+
 test("one read per repository, however many workstreams share it", () => {
   const workspaces = [
     recordedWorkspace({ workspace_id: "w4", number: 1 }),
@@ -133,21 +128,21 @@ test("one read per repository, however many workstreams share it", () => {
       worktree: { ...recordedWorkspace().worktree, repo_key: "/other/.git", repo_name: "other" }
     })
   ];
-  const queries = repositoriesToQuery(workstreamsOf({ workspaces, panes: [] }));
+  const queries = oneWorkspacePerRepository(workstreamsOf({ workspaces, panes: [] }));
 
   assert.equal(queries.length, 2, "two repositories, two reads");
-  assert.deepEqual(new Set(queries.map((query) => query.repoKey)).size, 2);
-  assert.equal(queries[0].workspaceId, "w4", "the first workspace of a repository speaks for it");
+  assert.equal(queries[0], "w4", "the first workspace of a repository speaks for it");
+  assert.ok(!queries.includes("w6"), "a second workspace on the same repository costs nothing");
 });
 
 test("a workspace with no worktree needs no read, since it has no branch to learn", () => {
   const workspace = recordedWorkspace({ worktree: null });
-  assert.deepEqual(repositoriesToQuery(workstreamsOf({ workspaces: [workspace], panes: [] })), []);
+  assert.deepEqual(oneWorkspacePerRepository(workstreamsOf({ workspaces: [workspace], panes: [] })), []);
 });
 
 test("there are always exactly three channels, filled or not", () => {
   const workspaces = [recordedWorkspace({ workspace_id: "w4", number: 1 })];
-  const channels = channelWorkstreams(workstreamsOf({ workspaces, panes: [] }), 3);
+  const channels = channelWorkstreams(workstreamsOf({ workspaces, panes: [] }));
 
   assert.equal(channels.length, 3);
   assert.equal(channels[0].workspaceId, "w4");
@@ -159,7 +154,7 @@ test("a fourth workstream takes no channel", () => {
   const workspaces = [1, 2, 3, 4].map((number) =>
     recordedWorkspace({ workspace_id: `w${number}`, number, label: `stream ${number}` })
   );
-  const channels = channelWorkstreams(workstreamsOf({ workspaces, panes: [] }), 3);
+  const channels = channelWorkstreams(workstreamsOf({ workspaces, panes: [] }));
 
   assert.deepEqual(channels.map((channel) => channel?.label), ["stream 1", "stream 2", "stream 3"]);
 });

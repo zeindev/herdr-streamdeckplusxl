@@ -8,7 +8,9 @@ const monoFont = `font-family="Consolas" font-weight="700"`;
  * longest labels the device shows and nearly all of them carry one; without it
  * `feat/auth-rewrite` breaks mid-word.
  */
-const WORD_BREAK = /[-_/\s]/u;
+const WORD_BREAK_CHARACTERS = "[-_/\\s]";
+const WORD_BREAK = new RegExp(WORD_BREAK_CHARACTERS, "u");
+const LEADING_WORD_BREAKS = new RegExp(`^${WORD_BREAK_CHARACTERS}+`, "u");
 
 export const MOTION_CYCLE_FRAMES = 21;
 
@@ -219,7 +221,7 @@ function splitLabel(value: string, width: number): string[] {
     let [line, tail] = splitLabelLine(rest, width);
     if (displayWidth(tail) > width * (remainingLines - 1)) {
       [line, tail] = splitAtWidth(rest, width);
-      tail = tail.replace(/^[-_/\s]+/u, "").trim();
+      tail = tail.replace(LEADING_WORD_BREAKS, "").trim();
     }
     lines.push(line);
     rest = tail;

@@ -67,9 +67,6 @@ export type WorkspaceSnapshot = {
   workspace_id: string;
   label?: string;
   number?: number;
-  focused?: boolean;
-  pane_count?: number;
-  tab_count?: number;
   /**
    * Herdr's own aggregate over the workspace's panes. Correct when read, but
    * never pushed — see `agentStatusOfPanes`, which is what keeps a channel live.
@@ -77,7 +74,6 @@ export type WorkspaceSnapshot = {
   agent_status?: AgentStatus;
   /** Null for a workspace that is not a checkout Herdr tracks. */
   worktree?: WorkspaceWorktreeSnapshot | null;
-  tokens?: Record<string, string>;
 };
 
 /** One entry of a `worktree.list` reply: the only place a branch is reported. */
@@ -193,7 +189,7 @@ export function paneIdentity(pane: PaneSnapshot | undefined, snapshot: HerdrSnap
   const tab = snapshot?.tabs?.find((item) => item.tab_id === pane.tab_id);
   const repo = pane.cwd?.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
   const primary = firstDistinct(pane.label, pane.terminal_title_stripped, repo, fallback) || fallback;
-  const workspaceLabel = cleanLabel(workspace?.label) || (workspace?.number ? `SPACE ${workspace.number}` : undefined);
+  const workspaceLabel = cleanLabel(workspace?.label) || (workspace?.number ? `WORKSPACE ${workspace.number}` : undefined);
   const rawTab = cleanLabel(tab?.label);
   const tabLabel = rawTab ? (/^\d+$/.test(rawTab) ? `T${rawTab}` : rawTab) : (tab?.number ? `T${tab.number}` : undefined);
   const context = [workspaceLabel, tabLabel].filter((value, index, values) => value && value !== primary && values.indexOf(value) === index).join(" › ");

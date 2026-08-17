@@ -5,6 +5,7 @@ import test from "node:test";
 import { RESYNC_DEBOUNCE_MS, initialState, reduce } from "../../.preview/device/state.js";
 import { DEVICE_TYPE_XL } from "../../.preview/device/geometry.js";
 import { workstreamsOf } from "../../.preview/device/workstream.js";
+import { recordedEvents, recordedWorkspace, recordedWorktree } from "../herdr/fixtures/recorded.mjs";
 
 const capture = JSON.parse(readFileSync(new URL("../herdr/fixtures/capture.json", import.meta.url), "utf8"));
 
@@ -261,19 +262,6 @@ test("the theme is carried on state so rendering never reaches for it", () => {
   const { state } = run([{ kind: "theme-changed", theme }]);
   assert.equal(state.theme.name, "catppuccin");
 });
-
-/** A workspace exactly as Herdr sent one, so the shape is never invented. */
-function recordedWorkspace(overrides = {}) {
-  const event = capture.events.find((candidate) => candidate.event === "workspace_created");
-  assert.ok(event?.data?.workspace, "the capture has no workspace_created to test with");
-  return { ...structuredClone(event.data.workspace), ...overrides };
-}
-
-function recordedWorktree() {
-  const event = capture.events.find((candidate) => candidate.event === "worktree_created");
-  assert.ok(event?.data?.worktree, "the capture has no worktree_created to test with");
-  return structuredClone(event.data.worktree);
-}
 
 function paneUpdate(pane, at = 0) {
   return { kind: "herdr-event", at, event: { event: "pane_updated", data: { type: "pane_updated", pane } } };

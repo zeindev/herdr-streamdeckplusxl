@@ -1,12 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { CHANNEL_COUNT, DEVICE_TYPE_XL, XL_LAYOUT, channelKeyIndex } from "../../.preview/device/geometry.js";
 import { initialState, reduce } from "../../.preview/device/state.js";
 import { HEADER_ROW, changedControls, surfaceOf } from "../../.preview/device/surface.js";
-
-const capture = JSON.parse(readFileSync(new URL("../herdr/fixtures/capture.json", import.meta.url), "utf8"));
+import { recordedWorkspace, recordedWorktree } from "../herdr/fixtures/recorded.mjs";
 
 function run(events, from = initialState()) {
   let state = from;
@@ -23,12 +21,6 @@ function liveState({ workspaces = [], panes = [], worktrees = [] } = {}) {
     { kind: "herdr-snapshot", snapshot: { workspaces, panes, tabs: [] } },
     { kind: "herdr-worktrees", worktrees }
   ]);
-}
-
-/** A workspace exactly as Herdr sent one, so the shape is never invented. */
-function recordedWorkspace(overrides = {}) {
-  const event = capture.events.find((candidate) => candidate.event === "workspace_created");
-  return { ...structuredClone(event.data.workspace), ...overrides };
 }
 
 /** The three keys of one channel's header row, left to right. */
@@ -93,12 +85,11 @@ test("each channel owns three columns and nothing outside them", () => {
 
 test("a channel names its repository, its branch, and how it is doing", () => {
   const workspace = recordedWorkspace({ workspace_id: "w6", number: 1 });
-  const worktreeEvent = capture.events.find((candidate) => candidate.event === "worktree_created");
   const device = surfaceOf(
     liveState({
       workspaces: [workspace],
       panes: [{ pane_id: "w6:p1", workspace_id: "w6", agent: "claude", agent_status: "blocked" }],
-      worktrees: [structuredClone(worktreeEvent.data.worktree)]
+      worktrees: [recordedWorktree()]
     })
   ).devices[0];
 
@@ -140,11 +131,21 @@ test("a workspace with no worktree is shown and labelled, never dropped", () => 
   assert.equal(branch.label, "NO WORKTREE");
 });
 
-test("a branch not yet read reads as unknown, not as having no worktree", () => {
+test("the three ways a branch can be absent read differently", () => {
   const workspace = recordedWorkspace({ workspace_id: "w6", number: 1 });
-  const device = surfaceOf(liveState({ workspaces: [workspace] })).devices[0];
+  const branchOf = (state) => surfaceOf(state).devices[0];
 
-  assert.equal(header(device, 0)[1].label, "NO BRANCH");
+  // Not asked yet is not the same as asked and told there is none, and neither
+  // is the same as a workspace with no checkout at all.
+  assert.equal(header(branchOf(liveState({ workspaces: [workspace] })), 0)[1].label, "UNKNOWN");
+  assert.equal(
+    header(branchOf(liveState({ workspaces: [workspace], worktrees: [recordedWorktree({ branch: null })] })), 0)[1].label,
+    "DETACHED"
+  );
+  assert.equal(
+    header(branchOf(liveState({ workspaces: [recordedWorkspace({ workspace_id: "w6", number: 1, worktree: null })] })), 0)[1].label,
+    "NO WORKTREE"
+  );
 });
 
 test("everything below the header row is still blank, awaiting panes and controls", () => {

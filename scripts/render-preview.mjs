@@ -6,13 +6,14 @@
  * because it draws the projected surface rather than hand-written examples, an
  * image that looks wrong means the projection is wrong.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 import { copiedHerdrTheme } from "../.preview/herdr-themes.js";
 import { DEVICE_TYPE_XL, XL_LAYOUT } from "../.preview/device/geometry.js";
 import { initialState, reduce } from "../.preview/device/state.js";
 import { surfaceOf } from "../.preview/device/surface.js";
 import { encoderImage, keyImage } from "../.preview/device/paint.js";
+import { recordedWorkspace } from "../src/herdr/fixtures/recorded.mjs";
 
 const KEY = 144;
 const GAP = 14;
@@ -34,18 +35,14 @@ const attach = { kind: "device-attached", device: { id: "preview", type: DEVICE_
  * The preview is only evidence if it draws what Herdr actually sends, so the
  * workspace shape comes from the recorded capture rather than being written here.
  */
-const capture = JSON.parse(readFileSync(new URL("../src/herdr/fixtures/capture.json", import.meta.url), "utf8"));
-const recordedWorkspace = capture.events.find((event) => event.event === "workspace_created").data.workspace;
-
 function workspace(number, label, checkoutPath) {
+  const recorded = recordedWorkspace();
   return {
-    ...structuredClone(recordedWorkspace),
+    ...recorded,
     workspace_id: `w${number}`,
     number,
     label,
-    ...(checkoutPath === null
-      ? { worktree: null }
-      : { worktree: { ...structuredClone(recordedWorkspace.worktree), checkout_path: checkoutPath } })
+    worktree: checkoutPath === null ? null : { ...recorded.worktree, checkout_path: checkoutPath }
   };
 }
 

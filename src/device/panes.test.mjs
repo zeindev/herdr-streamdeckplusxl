@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { paneRowsOf } from "../../.preview/device/panes.js";
+import { channelAgentStatus, mostUrgentPaneOf, paneRowsOf } from "../../.preview/device/panes.js";
 
 const pane = (id, role) => ({ pane_id: id, workspace_id: "w1", agent_status: "unknown", role });
 const roleFor = (candidate) => candidate.role;
 const rows = (panes, columns = 3) => paneRowsOf(panes, roleFor, columns);
 const idsOf = (row) => row.map((cell) => (cell === null ? null : cell.kind === "more" ? `+${cell.count}` : cell.pane.pane_id));
+
+const workstream = (id) => ({ workspaceId: id, label: id, worktree: null });
+const paneOn = (workspaceId, id, overrides = {}) => ({ pane_id: id, workspace_id: workspaceId, agent_status: "unknown", ...overrides });
+const attentionOn = (entries) => new Map(entries);
 
 test("a channel has one row per role row, each as wide as the channel", () => {
   const laid = rows([]);
@@ -76,4 +80,80 @@ test("a role emptying leaves its row quiet rather than pulling others up", () =>
 test("a pane carries the role it was placed by, so the face can say what it is", () => {
   const [agents] = rows([pane("a1", "agent")]);
   assert.equal(agents[0].role, "agent");
+});
+
+test("mostUrgentPaneOf picks the pane asking in REASON_ORDER's own priority", () => {
+  const panes = [paneOn("w1", "p1"), paneOn("w1", "p2")];
+  const attention = attentionOn([
+    ["p1", "finished"],
+    ["p2", "waiting"]
+  ]);
+  assert.equal(mostUrgentPaneOf(workstream("w1"), panes, attention).pane_id, "p2");
+});
+
+test("mostUrgentPaneOf breaks a tie in urgency by pane_id, deterministically", () => {
+  const panes = [paneOn("w1", "p9"), paneOn("w1", "p2")];
+  const attention = attentionOn([
+    ["p9", "waiting"],
+    ["p2", "waiting"]
+  ]);
+  assert.equal(mostUrgentPaneOf(workstream("w1"), panes, attention).pane_id, "p2");
+});
+
+test("mostUrgentPaneOf prefers a working agent when nothing is asking", () => {
+  const panes = [paneOn("w1", "idle1", { agent: "claude", agent_status: "idle" }), paneOn("w1", "work1", { agent: "claude", agent_status: "working" })];
+  assert.equal(mostUrgentPaneOf(workstream("w1"), panes, attentionOn([])).pane_id, "work1");
+});
+
+test("mostUrgentPaneOf falls back to any agent pane when none is working and nothing is asking", () => {
+  const panes = [paneOn("w1", "svc"), paneOn("w1", "agent1", { agent: "claude", agent_status: "idle" })];
+  assert.equal(mostUrgentPaneOf(workstream("w1"), panes, attentionOn([])).pane_id, "agent1");
+});
+
+test("mostUrgentPaneOf falls back to any pane at all when the workstream runs no agent", () => {
+  const panes = [paneOn("w1", "z-svc"), paneOn("w1", "a-svc")];
+  assert.equal(mostUrgentPaneOf(workstream("w1"), panes, attentionOn([])).pane_id, "a-svc");
+});
+
+test("mostUrgentPaneOf returns undefined for a workstream with no panes at all", () => {
+  assert.equal(mostUrgentPaneOf(workstream("w1"), [], attentionOn([])), undefined);
+});
+
+test("mostUrgentPaneOf never picks a pane belonging to another workstream", () => {
+  const panes = [paneOn("w9", "elsewhere"), paneOn("w1", "mine")];
+  const attention = attentionOn([["elsewhere", "waiting"]]);
+  assert.equal(mostUrgentPaneOf(workstream("w1"), panes, attention).pane_id, "mine");
+});
+
+test("channelAgentStatus reports blocked over an idle agent elsewhere in the channel", () => {
+  const panes = [
+    paneOn("w1", "p1", { agent: "claude", agent_status: "idle" }),
+    paneOn("w1", "p2", { agent: "claude", agent_status: "blocked" })
+  ];
+  assert.equal(channelAgentStatus(workstream("w1"), panes), "blocked");
+});
+
+test("channelAgentStatus follows the full priority: blocked, working, done, idle", () => {
+  const statusesPresent = (...statuses) =>
+    channelAgentStatus(
+      workstream("w1"),
+      statuses.map((status, index) => paneOn("w1", `p${index}`, { agent: "claude", agent_status: status }))
+    );
+  assert.equal(statusesPresent("idle", "working", "done"), "working");
+  assert.equal(statusesPresent("idle", "done"), "done");
+  assert.equal(statusesPresent("idle"), "idle");
+});
+
+test("channelAgentStatus ignores panes with no agent, since Herdr reports unknown for every one of them", () => {
+  const panes = [paneOn("w1", "svc1"), paneOn("w1", "svc2")];
+  assert.equal(channelAgentStatus(workstream("w1"), panes), undefined);
+});
+
+test("channelAgentStatus is undefined for a workstream with no panes at all", () => {
+  assert.equal(channelAgentStatus(workstream("w1"), []), undefined);
+});
+
+test("channelAgentStatus only counts panes belonging to this workstream", () => {
+  const panes = [paneOn("w9", "elsewhere", { agent: "claude", agent_status: "blocked" }), paneOn("w1", "mine", { agent: "claude", agent_status: "idle" })];
+  assert.equal(channelAgentStatus(workstream("w1"), panes), "idle");
 });

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="488" height="344" viewBox="0 0 488 344">
+  <rect width="488" height="344" fill="#141414"/>
+  <svg x="14" y="14" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    <rect x="4" y="4" width="136" height="136" rx="18" fill="none" stroke="rgb(243 139 168)" stroke-width="7"/><circle cx="118" cy="26" r="10" fill="rgb(243 139 168)"/>
+    <text x="72" y="47" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(243 139 168)" text-anchor="middle">feat/</text><text x="72" y="76" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(243 139 168)" text-anchor="middle">auth</text><text x="72" y="105" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(243 139 168)" text-anchor="middle">rewrite</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(166 173 200)" text-anchor="middle" letter-spacing=".1">EXITED</text>
+  </svg>
+  <svg x="172" y="14" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    
+    <text x="72" y="47" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(205 214 244)" text-anchor="middle">feat/</text><text x="72" y="76" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(205 214 244)" text-anchor="middle">billing</text><text x="72" y="105" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(205 214 244)" text-anchor="middle">api</text>
+    
+  </svg>
+  <svg x="330" y="14" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    <text x="16" y="32" font-family="Consolas" font-weight="700" font-size="26" fill="rgb(166 173 200)">3</text>
+    
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(166 173 200)" text-anchor="middle" letter-spacing=".1">NEW WORKTREE</text><path d="M57 76H87M72 61V91" stroke="rgb(166 173 200)" stroke-width="6" stroke-linecap="round"/>
+  </svg>
+  <svg x="14" y="172" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
+  <svg x="172" y="172" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(205 214 244)" text-anchor="middle">w2:dev</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(166 173 200)" text-anchor="middle" letter-spacing=".1">SHELL</text>
+  </svg>
+  <svg x="330" y="172" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
+  
+</svg>

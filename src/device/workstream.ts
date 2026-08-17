@@ -54,6 +54,27 @@ export type Workstream = {
 export type Branches = Readonly<Record<string, string | null>>;
 
 /**
+ * A workstream's identity as the device names it: the branch, or why there
+ * is not one.
+ *
+ * A workstream with no worktree falls back to its label, because otherwise it
+ * would have no identity anywhere on the device — the branch is what names a
+ * channel now that the keys are all panes, and "NO WORKTREE" names nothing.
+ * The three ways a branch can be absent stay distinguishable, since a single
+ * "no branch" would hide the difference between them.
+ *
+ * Shared by the strip's own leading line (`strip.ts`) and the Mini's top-row
+ * key (`-vk6`), which names the same workstream the same way rather than
+ * inventing a second identity string for a device with less room.
+ */
+export function workstreamIdentity(workstream: Workstream): string {
+  const worktree = workstream.worktree;
+  if (!worktree) return workstream.label;
+  if (worktree.branch === undefined) return "UNKNOWN";
+  return worktree.branch ?? "DETACHED";
+}
+
+/**
  * Every workspace Herdr holds, as workstreams, in the order channels take them.
  *
  * Order is Herdr's workspace `number`, with the id breaking ties so the same

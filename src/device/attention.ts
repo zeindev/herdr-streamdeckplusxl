@@ -260,7 +260,14 @@ function isCleanExit(status: string): boolean {
   return Number.isFinite(code) && code === 0;
 }
 
-const REASON_ORDER: readonly AttentionReason[] = ["waiting", "question", "approval", "exited", "finished"];
+/**
+ * Every reason, most urgent first. Ordering `attentionOf`'s own output, and
+ * shared by every other place that has to pick one reason out of several —
+ * a `more` key's hidden panes, a Mini channel's aggregate, a workstream's
+ * single most urgent pane — so which one wins is decided in exactly one
+ * place rather than risking three lists drifting apart.
+ */
+export const REASON_ORDER: readonly AttentionReason[] = ["waiting", "question", "approval", "exited", "finished"];
 
 function byWorkspaceThenReasonThenName(left: AttentionItem, right: AttentionItem): number {
   if (left.workspaceId !== right.workspaceId) return left.workspaceId.localeCompare(right.workspaceId);

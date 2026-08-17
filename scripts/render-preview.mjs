@@ -1,6 +1,7 @@
 /**
- * Renders the whole Stream Deck + XL at its real resolution, straight from the
- * surface the reducer projects.
+ * Renders the whole Stream Deck + XL, and the Mini standalone (ADR-0008),
+ * each at its real resolution, straight from the surface the reducer
+ * projects.
  *
  * This is the feedback loop for work on the device: it needs no hardware, and
  * because it draws the projected surface rather than hand-written examples, an
@@ -9,7 +10,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 
 import { copiedHerdrTheme } from "../.preview/herdr-themes.js";
-import { DEVICE_TYPE_XL, XL_LAYOUT } from "../.preview/device/geometry.js";
+import { DEVICE_TYPE_MINI, DEVICE_TYPE_XL, MINI_LAYOUT, XL_LAYOUT } from "../.preview/device/geometry.js";
 import { readSlots } from "../.preview/device/slots.js";
 import { initialState, reduce } from "../.preview/device/state.js";
 import { surfaceOf } from "../.preview/device/surface.js";
@@ -31,6 +32,7 @@ function apply(events, from = initialState()) {
 }
 
 const attach = { kind: "device-attached", device: { id: "preview", type: DEVICE_TYPE_XL } };
+const attachMini = { kind: "device-attached", device: { id: "preview-mini", type: DEVICE_TYPE_MINI } };
 
 /**
  * The preview is only evidence if it draws what Herdr actually sends, so the
@@ -51,9 +53,9 @@ function agentPane(workspaceId, index, status) {
   return { pane_id: `${workspaceId}:p${index}`, workspace_id: workspaceId, agent: "claude", agent_status: status };
 }
 
-function live(workspaces, panes, branches, processes = {}) {
+function live(workspaces, panes, branches, processes = {}, device = attach) {
   return apply([
-    attach,
+    device,
     { kind: "herdr-connection", connected: true },
     { kind: "herdr-snapshot", snapshot: { workspaces, tabs: [], panes } },
     { kind: "herdr-worktrees", worktrees: Object.entries(branches).map(([path, branch]) => ({ path, branch })) },
@@ -213,37 +215,92 @@ const scenes = {
   )
 };
 
+/**
+ * The Mini, standalone (ADR-0008, `-vk6`): the same three workstreams as
+ * `liveScene`, in the same column order, so the two devices' previews can be
+ * compared side by side — plus the cases that only mean something once a
+ * second, urgency-ranked pane exists to rank: an orphaned dead service (no
+ * pane to land on), and an unassigned channel.
+ */
+const miniScenes = {
+  live: live(
+    [workspace(1, "auth rewrite", "/w/auth-rewrite"), workspace(2, "billing api", "/w/billing-api"), workspace(3, "search perf", "/w/search-perf")],
+    [
+      agentPane("w1", 1, "blocked"),
+      pane("w1", "dev"),
+      agentPane("w2", 1, "working"),
+      pane("w2", "dev"),
+      agentPane("w3", 1, "done"),
+      pane("w3", "sh")
+    ],
+    { "/w/auth-rewrite": "feat/auth-rewrite", "/w/billing-api": "feat/billing-api", "/w/search-perf": "perf/search" },
+    {},
+    attachMini
+  ),
+  // Channel 1's dev server died and named no pane still there — the top row
+  // has to mark it even though the bottom row has nothing of its own to show.
+  orphanedExit: apply([
+    attachMini,
+    { kind: "herdr-connection", connected: true },
+    {
+      kind: "herdr-snapshot",
+      snapshot: {
+        workspaces: [
+          { ...workspace(1, "auth rewrite", "/w/auth-rewrite"), tokens: { sd_exit_dev: "1" } },
+          workspace(2, "billing api", "/w/billing-api")
+        ],
+        tabs: [],
+        panes: [pane("w2", "dev")]
+      }
+    },
+    {
+      kind: "herdr-worktrees",
+      worktrees: [
+        { path: "/w/auth-rewrite", branch: "feat/auth-rewrite" },
+        { path: "/w/billing-api", branch: "feat/billing-api" }
+      ]
+    }
+  ]),
+  partial: live([workspace(1, "primary", null)], [{ pane_id: "w1:p1", workspace_id: "w1", agent_status: "unknown" }], {}, {}, attachMini)
+};
+
 mkdirSync("artifacts", { recursive: true });
 for (const [name, state] of Object.entries(scenes)) {
   for (const [appearance, theme] of [["dark", dark], ["light", light]]) {
     if (!["live", "attention", "partial", "overflow", "disconnected", "crowded"].includes(name) && appearance === "light") continue;
-    writeFileSync(`artifacts/xl-${name}-${appearance}.svg`, devicePreview(state, theme));
+    writeFileSync(`artifacts/xl-${name}-${appearance}.svg`, devicePreview(state, theme, XL_LAYOUT));
   }
 }
+for (const [name, state] of Object.entries(miniScenes)) {
+  writeFileSync(`artifacts/mini-${name}-dark.svg`, devicePreview(state, dark, MINI_LAYOUT));
+}
 
-function devicePreview(state, theme) {
+function devicePreview(state, theme, layout) {
   const [device] = surfaceOf(state).devices;
   if (!device) throw new Error("The preview state has no attached device");
 
-  const width = XL_LAYOUT.columns * KEY + (XL_LAYOUT.columns + 1) * GAP;
-  const gridHeight = XL_LAYOUT.rows * KEY + (XL_LAYOUT.rows + 1) * GAP;
-  const stripWidth = XL_LAYOUT.encoders * 200;
-  const height = gridHeight + STRIP_HEIGHT + GAP * 2;
+  const width = layout.columns * KEY + (layout.columns + 1) * GAP;
+  const gridHeight = layout.rows * KEY + (layout.rows + 1) * GAP;
+  const stripWidth = layout.encoders * 200;
+  const height = gridHeight + (layout.encoders > 0 ? STRIP_HEIGHT + GAP : 0) + GAP;
 
   const keys = device.keys.map((face, index) => {
-    const column = index % XL_LAYOUT.columns;
-    const row = Math.floor(index / XL_LAYOUT.columns);
+    const column = index % layout.columns;
+    const row = Math.floor(index / layout.columns);
     const x = GAP + column * (KEY + GAP);
     const y = GAP + row * (KEY + GAP);
     return place(keyImage(face, theme), x, y, KEY, KEY);
   });
 
   // The strip is one continuous composition drawn through its regions, so the
-  // preview lays them edge to edge exactly as the hardware does.
+  // preview lays them edge to edge exactly as the hardware does. The Mini has
+  // none (ADR-0008), so this section is skipped entirely rather than drawing
+  // an empty strip that would imply one exists.
   const stripX = (width - stripWidth) / 2;
-  const strip = device.encoders.map((face, index) =>
-    place(encoderImage(index, face, XL_LAYOUT, theme), stripX + index * 200, gridHeight + GAP, 200, STRIP_HEIGHT)
-  );
+  const strip =
+    layout.encoders > 0
+      ? device.encoders.map((face, index) => place(encoderImage(index, face, layout, theme), stripX + index * 200, gridHeight + GAP, 200, STRIP_HEIGHT))
+      : [];
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <rect width="${width}" height="${height}" fill="#141414"/>

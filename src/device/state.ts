@@ -3,6 +3,8 @@ import type { HerdrSnapshot, PaneProcess, PaneSnapshot, ResolvedThemeSnapshot, W
 import {
   acknowledge,
   acknowledges,
+  attentionByPane,
+  attentionOf,
   keepAcknowledged,
   sameAcknowledged,
   type Acknowledged
@@ -23,7 +25,7 @@ import {
 } from "./control.js";
 import { sameKey, type Command, type DeviceEvent, type DeviceInfo, type KeyAddress } from "./events.js";
 import { channelOfColumn, columnInChannel, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
-import { agentPaneOf, channelRows, type PaneCell } from "./panes.js";
+import { agentPaneOf, channelRows, mostUrgentPaneOf, type PaneCell } from "./panes.js";
 import {
   commandKeyOf,
   commandLineOf,
@@ -420,16 +422,20 @@ function applyHold(state: State, held: PressedKey, at: number): Step {
 }
 
 /**
- * The control row is the last row of every channel; this resolves a press to
- * which channel's workstream and which of the three fixed verbs it landed on.
+ * The control row is the last row of every channel on the XL; this resolves
+ * a press to which channel's workstream and which of the three fixed verbs
+ * it landed on.
  *
  * Derived the same way `surfaceOf` derives it, from the same inputs, so a
  * press can never act on a different workstream than the one the developer is
- * looking at (ADR-0011, ADR-0012).
+ * looking at (ADR-0011, ADR-0012). The Mini has no control row at all
+ * (ADR-0008) — its own last row is the most-urgent-pane row `cellAt` already
+ * resolves, so this returns null there rather than misreading a pane tap as
+ * a verb because the two devices happen to share a row index.
  */
 function controlCellAt(state: State, key: KeyAddress): { workspaceId: string; column: number } | null {
   const layout = layoutOf(state, key.deviceId);
-  if (!layout || key.row !== layout.rows - 1) return null;
+  if (!layout || layout.kind !== "xl" || key.row !== layout.rows - 1) return null;
   const channel = channelOfColumn(layout, key.column);
   const workstream = channelWorkstreams(state.slots, presentWorkstreams(state))[channel];
   return workstream ? { workspaceId: workstream.workspaceId, column: columnInChannel(layout, key.column) } : null;
@@ -542,8 +548,28 @@ export function channelRowsOf(state: State, layout: DeviceLayout, channel: numbe
 function cellAt(state: State, key: KeyAddress): PaneCell | null {
   const layout = layoutOf(state, key.deviceId);
   if (!layout) return null;
+  if (layout.kind === "mini") return miniCellAt(state, layout, key);
   const rows = channelRowsOf(state, layout, channelOfColumn(layout, key.column));
   return rows[key.row]?.[columnInChannel(layout, key.column)] ?? null;
+}
+
+/**
+ * The Mini's bottom-row key: its channel's most urgent pane, resolved the
+ * same way `surfaceOf` resolves it (`mostUrgentPaneOf`), so a tap can never
+ * focus a different pane than the one the key is actually showing. The top
+ * row names the workstream, not a pane, so nothing resolves there — `-vk6`
+ * only asks that a bottom-row tap focus a pane, and the top row has none to
+ * offer.
+ */
+function miniCellAt(state: State, layout: DeviceLayout, key: KeyAddress): PaneCell | null {
+  if (key.row !== 1) return null;
+  const channel = channelOfColumn(layout, key.column);
+  const workstream = channelWorkstreams(state.slots, presentWorkstreams(state))[channel];
+  if (!workstream) return null;
+  const panes = state.snapshot?.panes ?? [];
+  const attention = attentionByPane(attentionOf(state.snapshot, state.acknowledged));
+  const pane = mostUrgentPaneOf(workstream, panes, attention);
+  return pane ? { kind: "pane", pane, role: roleResolver(state.processes, state.roles)(pane) } : null;
 }
 
 /**

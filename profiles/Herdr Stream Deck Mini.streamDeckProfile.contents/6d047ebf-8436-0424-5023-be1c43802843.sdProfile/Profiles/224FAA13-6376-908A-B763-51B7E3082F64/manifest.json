@@ -1,0 +1,131 @@
+{
+  "Controllers": [
+    {
+      "Actions": {
+        "0,0": {
+          "ActionID": "D7F8938E-28B6-F043-DFF3-BE133BF717D4",
+          "LinkedTitle": false,
+          "Name": "Channel Key",
+          "Plugin": {
+            "Name": "Channel Key",
+            "UUID": "dev.herdr.streamdeck.key",
+            "Version": "0.1.0.0"
+          },
+          "Resources": null,
+          "Settings": {},
+          "State": 0,
+          "States": [
+            {
+              "Title": "",
+              "ShowTitle": false
+            }
+          ],
+          "UUID": "dev.herdr.streamdeck.key"
+        },
+        "1,0": {
+          "ActionID": "40CDC986-C1D1-6A46-F167-618F7BB6B723",
+          "LinkedTitle": false,
+          "Name": "Channel Key",
+          "Plugin": {
+            "Name": "Channel Key",
+            "UUID": "dev.herdr.streamdeck.key",
+            "Version": "0.1.0.0"
+          },
+          "Resources": null,
+          "Settings": {},
+          "State": 0,
+          "States": [
+            {
+              "Title": "",
+              "ShowTitle": false
+            }
+          ],
+          "UUID": "dev.herdr.streamdeck.key"
+        },
+        "2,0": {
+          "ActionID": "DE38037E-8408-368D-3F85-A4A1AFE44CDB",
+          "LinkedTitle": false,
+          "Name": "Channel Key",
+          "Plugin": {
+            "Name": "Channel Key",
+            "UUID": "dev.herdr.streamdeck.key",
+            "Version": "0.1.0.0"
+          },
+          "Resources": null,
+          "Settings": {},
+          "State": 0,
+          "States": [
+            {
+              "Title": "",
+              "ShowTitle": false
+            }
+          ],
+          "UUID": "dev.herdr.streamdeck.key"
+        },
+        "0,1": {
+          "ActionID": "82ABEB22-830C-14B9-9551-3AE550039CE9",
+          "LinkedTitle": false,
+          "Name": "Channel Key",
+          "Plugin": {
+            "Name": "Channel Key",
+            "UUID": "dev.herdr.streamdeck.key",
+            "Version": "0.1.0.0"
+          },
+          "Resources": null,
+          "Settings": {},
+          "State": 0,
+          "States": [
+            {
+              "Title": "",
+              "ShowTitle": false
+            }
+          ],
+          "UUID": "dev.herdr.streamdeck.key"
+        },
+        "1,1": {
+          "ActionID": "C3AE3442-05AD-1E74-228E-901C11AB13F5",
+          "LinkedTitle": false,
+          "Name": "Channel Key",
+          "Plugin": {
+            "Name": "Channel Key",
+            "UUID": "dev.herdr.streamdeck.key",
+            "Version": "0.1.0.0"
+          },
+          "Resources": null,
+          "Settings": {},
+          "State": 0,
+          "States": [
+            {
+              "Title": "",
+              "ShowTitle": false
+            }
+          ],
+          "UUID": "dev.herdr.streamdeck.key"
+        },
+        "2,1": {
+          "ActionID": "299F7212-F686-1E66-4601-ABC8E0BE42BF",
+          "LinkedTitle": false,
+          "Name": "Channel Key",
+          "Plugin": {
+            "Name": "Channel Key",
+            "UUID": "dev.herdr.streamdeck.key",
+            "Version": "0.1.0.0"
+          },
+          "Resources": null,
+          "Settings": {},
+          "State": 0,
+          "States": [
+            {
+              "Title": "",
+              "ShowTitle": false
+            }
+          ],
+          "UUID": "dev.herdr.streamdeck.key"
+        }
+      },
+      "Type": "Keypad"
+    }
+  ],
+  "Icon": "",
+  "Name": ""
+}

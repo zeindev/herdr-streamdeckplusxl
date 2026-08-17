@@ -77,6 +77,17 @@ function keyView(face: KeyFace): Parameters<typeof keySvg>[0] {
         ...(face.danger ? { danger: true } : {}),
         ...(face.feedback ? { feedback: face.feedback } : {})
       };
+    case "workstream":
+      // The Mini's top row (ADR-0008): identity where a pane's role would
+      // otherwise go, since there is no role to name here — just a workstream
+      // and, when something is asking, which of its panes is asking about it.
+      return {
+        label: face.label,
+        detail: face.attention ? ATTENTION_WORDS[face.attention] : undefined,
+        ...(face.status ? { status: face.status } : {}),
+        ...(face.attention ? { attention: true } : {}),
+        ...(face.attention === "exited" ? { danger: true } : {})
+      };
   }
 }
 

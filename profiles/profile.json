@@ -1,5 +1,12 @@
-{
-  "DeviceType": 13,
-  "DeviceModel": "",
-  "Name": "Herdr Stream Deck XL"
-}
+[
+  {
+    "DeviceType": 13,
+    "DeviceModel": "",
+    "Name": "Herdr Stream Deck XL"
+  },
+  {
+    "DeviceType": 1,
+    "DeviceModel": "",
+    "Name": "Herdr Stream Deck Mini"
+  }
+]

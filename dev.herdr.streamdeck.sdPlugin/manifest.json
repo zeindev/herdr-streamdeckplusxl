@@ -36,6 +36,13 @@
       "Readonly": false,
       "DontAutoSwitchWhenInstalled": false,
       "AutoInstall": true
+    },
+    {
+      "Name": "profiles/Herdr Stream Deck Mini",
+      "DeviceType": 1,
+      "Readonly": false,
+      "DontAutoSwitchWhenInstalled": false,
+      "AutoInstall": true
     }
   ],
   "Actions": [

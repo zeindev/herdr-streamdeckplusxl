@@ -7,7 +7,7 @@ import { ACK_DISPLAY_MS, ARM_TIMEOUT_MS, CONTINUE_PROMPT } from "../../.preview/
 import { attentionOf } from "../../.preview/device/attention.js";
 import { overflowOf, readSlots } from "../../.preview/device/slots.js";
 import { roleResolver } from "../../.preview/device/role.js";
-import { DEVICE_TYPE_XL } from "../../.preview/device/geometry.js";
+import { DEVICE_TYPE_MINI, DEVICE_TYPE_XL } from "../../.preview/device/geometry.js";
 import { UNKNOWN, pullRequestReadingValue, ticketsReadingValue } from "../../.preview/device/enrichment.js";
 import { workstreamsOf } from "../../.preview/device/workstream.js";
 import { recordedEvents, recordedWorkspace, recordedWorktree } from "../herdr/fixtures/recorded.mjs";
@@ -434,6 +434,15 @@ function liveWith(workspaces, from) {
 function liveWith2(workspaces, panes) {
   return run([xl, { kind: "herdr-connection", connected: true }, snapshotOf({ workspaces, panes })]);
 }
+
+const mini = { kind: "device-attached", device: { id: "mini-1", type: DEVICE_TYPE_MINI } };
+
+function liveWithMini(workspaces, panes) {
+  return run([mini, { kind: "herdr-connection", connected: true }, snapshotOf({ workspaces, panes })]);
+}
+
+/** The Mini's own key at a channel's column and row, as the SDK addresses it (`-vk6`: one column per channel). */
+const miniKeyAt = (channel, row) => ({ deviceId: "mini-1", column: channel, row });
 
 test("a workstream is given a channel and the assignment is persisted", () => {
   const { state, commands } = liveWith([workspaceOn(1, "auth")], run([xl]).state);
@@ -1106,4 +1115,61 @@ test("enrichment expiring reads as unknown again, the same as it never having ar
   const expired = run([snapshotOf({ workspaces: [workspaceOn(1, "auth")] })], live).state;
   assert.equal(ticketsOf(expired), UNKNOWN);
   assert.equal(pullRequestOf(expired), UNKNOWN);
+});
+
+/**
+ * The Mini, at the reducer (`-vk6`). The surface-level shape of a Mini
+ * device is covered in surface.test.mjs; what belongs here is what a press
+ * on it actually does.
+ */
+
+test("attaching a Mini is accepted the same way an XL is", () => {
+  const attached = run([mini]);
+  assert.deepEqual(attached.state.devices, [{ id: "mini-1", type: DEVICE_TYPE_MINI }]);
+});
+
+test("tapping a Mini's bottom-row key focuses that channel's most urgent pane", () => {
+  const live = liveWithMini(
+    [workspaceOn(1, "auth")],
+    [paneOn("w1", "a", { agent: "claude", agent_status: "idle" }), paneOn("w1", "b", { agent: "claude", agent_status: "blocked" })]
+  ).state;
+
+  const { commands } = tapKey(live, miniKeyAt(0, 1));
+  assert.deepEqual(commands, [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: "w1:b" } }]);
+});
+
+test("focusing a Mini's bottom-row key acknowledges finished work the same way a tap on the XL does", () => {
+  const live = liveWithMini([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude", agent_status: "done" })]).state;
+  const { state } = tapKey(live, miniKeyAt(0, 1));
+  assert.deepEqual(state.acknowledged, ["w1:a"]);
+});
+
+test("tapping a Mini's bottom-row key for a workstream with no panes asks Herdr for nothing", () => {
+  const live = liveWithMini([workspaceOn(1, "auth")], []).state;
+  const { commands } = tapKey(live, miniKeyAt(0, 1));
+  assert.deepEqual(commands, []);
+});
+
+test("tapping a Mini's top-row key does nothing — it names a workstream, not a pane, and the Mini has no control row to land on either", () => {
+  const live = liveWithMini([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude", agent_status: "blocked" })]).state;
+  const { commands, state } = tapKey(live, miniKeyAt(0, 0));
+  assert.deepEqual(commands, []);
+  assert.deepEqual(state.controlAcknowledgements, [], "there is no control row here to acknowledge a tap on");
+});
+
+test("tapping an unassigned Mini slot asks Herdr for nothing, the same as an unassigned XL channel", () => {
+  const live = liveWithMini([], []).state;
+  const { commands } = tapKey(live, miniKeyAt(0, 0));
+  assert.deepEqual(commands, []);
+});
+
+test("a Mini's bottom-row press follows the channel's own workstream, not a fixed pane", () => {
+  const workspaces = [workspaceOn(1, "auth"), workspaceOn(2, "billing")];
+  const live = liveWithMini(
+    workspaces,
+    [paneOn("w1", "a", { agent: "claude" }), paneOn("w2", "b", { agent: "claude", agent_status: "blocked" })]
+  ).state;
+
+  const { commands } = tapKey(live, miniKeyAt(1, 1));
+  assert.deepEqual(commands, [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: "w2:b" } }]);
 });

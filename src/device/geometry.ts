@@ -1,21 +1,21 @@
 /**
- * Physical layout of the devices this product drives.
- *
- * Only the Stream Deck + XL is described here. The Stream Deck Mini is an
- * accepted target (ADR-0008) but nothing renders it yet, so its geometry
- * arrives with the ticket that does.
+ * Physical layout of the devices this product drives (ADR-0008).
  */
 
 /** Elgato `DeviceType` for the Stream Deck + XL. */
 export const DEVICE_TYPE_XL = 13;
 
+/** Elgato `DeviceType` for the Stream Deck Mini. */
+export const DEVICE_TYPE_MINI = 1;
+
 export type DeviceLayout = {
-  kind: "xl";
+  kind: "xl" | "mini";
   columns: number;
   rows: number;
   /**
    * Rotary encoders. Each owns one 200x100 region of the touch strip, so an
-   * encoder and its region are one control, not two.
+   * encoder and its region are one control, not two. Zero on the Mini, which
+   * has no dials and no strip (ADR-0008) — nothing downstream may draw one.
    */
   encoders: number;
   /** Columns one channel owns. The grid divides exactly by `CHANNEL_COUNT`. */
@@ -35,6 +35,21 @@ export const XL_LAYOUT: DeviceLayout = {
   encoders: 6,
   columnsPerChannel: 3,
   encodersPerChannel: 2
+};
+
+/**
+ * 6 keys as 3 columns by 2 rows, one column per channel, no encoders. Column
+ * order matches the XL exactly — column 1 is the same workstream on both
+ * devices, always — so muscle memory transfers rather than competing
+ * (ADR-0008, `-vk6`).
+ */
+export const MINI_LAYOUT: DeviceLayout = {
+  kind: "mini",
+  columns: 3,
+  rows: 2,
+  encoders: 0,
+  columnsPerChannel: 1,
+  encodersPerChannel: 0
 };
 
 /**
@@ -60,7 +75,9 @@ export function channelKeyIndex(layout: DeviceLayout, channel: number, column: n
 }
 
 export function layoutForDeviceType(deviceType: number): DeviceLayout | null {
-  return deviceType === DEVICE_TYPE_XL ? XL_LAYOUT : null;
+  if (deviceType === DEVICE_TYPE_XL) return XL_LAYOUT;
+  if (deviceType === DEVICE_TYPE_MINI) return MINI_LAYOUT;
+  return null;
 }
 
 export function keyCount(layout: DeviceLayout): number {

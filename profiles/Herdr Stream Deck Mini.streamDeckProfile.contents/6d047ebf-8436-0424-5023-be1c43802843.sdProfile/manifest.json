@@ -1,0 +1,15 @@
+{
+  "Device": {
+    "Model": "",
+    "UUID": ""
+  },
+  "Name": "Herdr Stream Deck Mini",
+  "Pages": {
+    "Current": "224faa13-6376-908a-b763-51b7e3082f64",
+    "Default": "224faa13-6376-908a-b763-51b7e3082f64",
+    "Pages": [
+      "224faa13-6376-908a-b763-51b7e3082f64"
+    ]
+  },
+  "Version": "3.0"
+}

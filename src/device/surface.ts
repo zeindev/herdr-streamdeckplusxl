@@ -1,14 +1,14 @@
 import type { AgentStatus, PaneSnapshot } from "../model.js";
-import { attentionByPane, attentionIn, attentionOf, type AttentionItem, type AttentionReason } from "./attention.js";
+import { REASON_ORDER, attentionByPane, attentionIn, attentionOf, type AttentionItem, type AttentionReason } from "./attention.js";
 import { ACTIONS_COLUMN, FOCUS_COLUMN, GIT_COLUMN, acknowledgementFor } from "./control.js";
 import { CHANNEL_COUNT, channelKeyIndex, keyCount, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
-import type { PaneCell } from "./panes.js";
-import { paneKeyLabel } from "./panes.js";
+import { channelAgentStatus, mostUrgentPaneOf, paneKeyLabel, type PaneCell } from "./panes.js";
+import { roleResolver } from "./role.js";
 import type { PaneProcesses, Role } from "./role.js";
 import { channelWorkstreams, overflowOf } from "./slots.js";
 import { channelRowsOf, type State } from "./state.js";
 import { OVERFLOW_CELLS, stripBlockOf, type StripBlock } from "./strip.js";
-import { workstreamsOf, type Workstream } from "./workstream.js";
+import { workstreamIdentity, workstreamsOf, type Workstream } from "./workstream.js";
 
 /**
  * What a control shows, described rather than drawn. Turning a face into pixels
@@ -52,7 +52,16 @@ export type KeyFace =
    */
   | { kind: "more"; count: number; attention?: AttentionReason }
   /** An unassigned channel, which invites a worktree rather than showing nothing. */
-  | { kind: "empty"; slot: number };
+  | { kind: "empty"; slot: number }
+  /**
+   * A workstream's own identity plus its aggregated state — the Mini's top
+   * row (ADR-0008, `-vk6`), which has no room to show individual panes the
+   * way the XL's rows do. `status` is `channelAgentStatus`'s aggregate over
+   * every agent pane the workstream has; `attention` is the same worst-first
+   * pick `more` makes, over everything asking anywhere in the workstream
+   * rather than only what one row hides.
+   */
+  | { kind: "workstream"; label: string; status?: AgentStatus; attention?: AttentionReason };
 
 /**
  * An encoder and the touch-strip region above it are one control on the
@@ -83,9 +92,12 @@ export type Surface = { devices: DeviceSurface[] };
 
 const BLANK: KeyFace = { kind: "blank" };
 
-/** Which reason a `more` key reports when it hides several. Most urgent first. */
-const MORE_ATTENTION_ORDER: readonly AttentionReason[] = ["waiting", "question", "approval", "exited", "finished"];
 const EMPTY_BLOCK: StripBlock = { branch: null, readings: [], notice: null };
+
+/** The most urgent of several reasons, per `REASON_ORDER`, or none when nothing is asking. */
+function worstOf(reasons: readonly AttentionReason[]): AttentionReason | undefined {
+  return REASON_ORDER.find((reason) => reasons.includes(reason));
+}
 
 /**
  * Projects state onto every attached device.
@@ -111,19 +123,17 @@ export function surfaceOf(state: State): Surface {
     devices.push({
       deviceId: device.id,
       layout: layout.kind,
-      keys: keysOf(state, layout, workstreams, attentionByPane(attention)),
+      keys: keysOf(state, layout, workstreams, attention),
       encoders: encodersOf(layout, workstreams, panes, overflow, noticeFor(state), attention)
     });
   }
   return { devices };
 }
 
-function keysOf(
-  state: State,
-  layout: DeviceLayout,
-  workstreams: ReadonlyArray<Workstream | null>,
-  attention: ReadonlyMap<string, AttentionReason>
-): KeyFace[] {
+function keysOf(state: State, layout: DeviceLayout, workstreams: ReadonlyArray<Workstream | null>, attention: readonly AttentionItem[]): KeyFace[] {
+  if (layout.kind === "mini") return miniKeysOf(state, layout, workstreams, attention);
+
+  const attentionByPaneId = attentionByPane(attention);
   const keys = Array.from({ length: keyCount(layout) }, () => BLANK);
   for (let channel = 0; channel < CHANNEL_COUNT; channel++) {
     const workstream = workstreams[channel];
@@ -135,7 +145,7 @@ function keysOf(
     }
     channelRowsOf(state, layout, channel).forEach((row, rowIndex) =>
       row.forEach((cell, column) => {
-        if (cell) keys[channelKeyIndex(layout, channel, column, rowIndex)] = paneFace(cell, state.processes, attention);
+        if (cell) keys[channelKeyIndex(layout, channel, column, rowIndex)] = paneFace(cell, state.processes, attentionByPaneId);
       })
     );
     const controlRow = layout.rows - 1;
@@ -144,6 +154,60 @@ function keysOf(
     }
   }
   return keys;
+}
+
+/**
+ * The Mini's two rows (ADR-0008, `-vk6`): a workstream's identity and
+ * aggregate state on top, its single most urgent pane below. Nothing here
+ * organises by role or draws a control row — the Mini has two keys per
+ * channel and no room for either, and pretending otherwise is exactly what
+ * "the device must degrade honestly" rules out.
+ *
+ * `attention` arrives as the raw, un-narrowed list rather than already keyed
+ * by pane: the top row needs every item a workstream has, pane-scoped or
+ * not (`workstreamFace`'s own doc explains why), while the bottom row needs
+ * the pane-keyed form `mostUrgentPaneOf` and `paneFace` both expect — so
+ * both shapes are derived here, once, from the one list passed in.
+ */
+function miniKeysOf(state: State, layout: DeviceLayout, workstreams: ReadonlyArray<Workstream | null>, attention: readonly AttentionItem[]): KeyFace[] {
+  const attentionByPaneId = attentionByPane(attention);
+  const keys = Array.from({ length: keyCount(layout) }, () => BLANK);
+  const panes = state.snapshot?.panes ?? [];
+  const roleFor = roleResolver(state.processes, state.roles);
+
+  for (let channel = 0; channel < CHANNEL_COUNT; channel++) {
+    const workstream = workstreams[channel];
+    if (!workstream) {
+      keys[channelKeyIndex(layout, channel, 0, 0)] = { kind: "empty", slot: channel };
+      continue;
+    }
+    keys[channelKeyIndex(layout, channel, 0, 0)] = workstreamFace(workstream, panes, attentionIn(attention, workstream.workspaceId));
+    const urgent = mostUrgentPaneOf(workstream, panes, attentionByPaneId);
+    if (urgent) {
+      const cell: PaneCell = { kind: "pane", pane: urgent, role: roleFor(urgent) };
+      keys[channelKeyIndex(layout, channel, 0, 1)] = paneFace(cell, state.processes, attentionByPaneId);
+    }
+  }
+  return keys;
+}
+
+/**
+ * A workstream's identity and aggregate state, for the Mini's top row.
+ *
+ * `attention` is already narrowed to this one workstream and covers every
+ * item it has, pane-scoped or not — unlike a pane key's own mark, this one
+ * must not miss an orphaned dead service just because it named no pane
+ * (`attention.ts`'s `AttentionItem` allows `exited` to carry no `paneId`).
+ */
+function workstreamFace(workstream: Workstream, panes: readonly PaneSnapshot[], attention: readonly AttentionItem[]): KeyFace {
+  const status = channelAgentStatus(workstream, panes);
+  const worst = worstOf(attention.map((item) => item.reason));
+  return {
+    kind: "workstream",
+    label: workstreamIdentity(workstream),
+    ...(status ? { status } : {}),
+    ...(worst ? { attention: worst } : {})
+  };
 }
 
 /**
@@ -192,8 +256,8 @@ function paneFace(
     // The most urgent thing hiding behind the count, in the same order the
     // items themselves are ranked, so which one surfaces never depends on the
     // order Herdr listed the panes in.
-    const hidden = cell.panes.map((pane) => attention.get(pane.pane_id)).filter(Boolean) as AttentionReason[];
-    const worst = MORE_ATTENTION_ORDER.find((reason) => hidden.includes(reason));
+    const hidden = cell.panes.map((pane) => attention.get(pane.pane_id)).filter((reason): reason is AttentionReason => Boolean(reason));
+    const worst = worstOf(hidden);
     return { kind: "more", count: cell.count, ...(worst ? { attention: worst } : {}) };
   }
   const label = paneKeyLabel(cell.pane, processes[cell.pane.pane_id] ?? undefined, cell.role);
@@ -227,6 +291,11 @@ function encodersOf(
   notice: string | null,
   attention: readonly AttentionItem[]
 ): EncoderFace[] {
+  // The Mini has no dials and no strip (ADR-0008): nothing to divide by, and
+  // nothing to draw — an explicit early return rather than trusting the
+  // arithmetic below to degrade gracefully at zero.
+  if (layout.encoders === 0) return [];
+
   const last = layout.encoders - 1;
   const lastChannel = Math.floor(last / layout.encodersPerChannel);
   const blocks = workstreams.map((workstream, channel) =>

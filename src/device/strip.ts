@@ -2,7 +2,7 @@ import type { PaneSnapshot } from "../model.js";
 import { READING_GAP, displayWidth, truncateMiddle } from "../text.js";
 import type { AttentionItem } from "./attention.js";
 import { pullRequestReadingValue, ticketsReadingValue } from "./enrichment.js";
-import type { Workstream } from "./workstream.js";
+import { workstreamIdentity, type Workstream } from "./workstream.js";
 
 export { UNKNOWN } from "./enrichment.js";
 
@@ -88,29 +88,13 @@ export function stripBlockOf(
   { reserved = 0, notice = null, attention = [] }: StripBlockOptions = {}
 ): StripBlock {
   if (!workstream) return { branch: null, readings: [], notice };
-  const branch = truncateMiddle(branchTextOf(workstream), BRANCH_CELLS);
+  const branch = truncateMiddle(workstreamIdentity(workstream), BRANCH_CELLS);
   if (notice) return { branch, readings: [], notice };
   return {
     branch,
     readings: fitted(candidatesFor(workstream, panes, attention), READING_CELLS - reserved),
     notice: null
   };
-}
-
-/**
- * What the strip leads with: the branch, or why there is not one.
- *
- * A workstream with no worktree falls back to its label, because otherwise it
- * would have no identity anywhere on the device — the branch is what names a
- * channel now that the keys are all panes, and "NO WORKTREE" names nothing.
- * The three ways a branch can be absent stay distinguishable, since a single
- * "no branch" would hide the difference between them.
- */
-function branchTextOf(workstream: Workstream): string {
-  const worktree = workstream.worktree;
-  if (!worktree) return workstream.label;
-  if (worktree.branch === undefined) return "UNKNOWN";
-  return worktree.branch ?? "DETACHED";
 }
 
 /**

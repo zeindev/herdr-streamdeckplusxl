@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { CHANNEL_COUNT, DEVICE_TYPE_XL, XL_LAYOUT, channelKeyIndex } from "../../.preview/device/geometry.js";
+import { CHANNEL_COUNT, DEVICE_TYPE_MINI, DEVICE_TYPE_XL, XL_LAYOUT, channelKeyIndex } from "../../.preview/device/geometry.js";
 import { readSlots } from "../../.preview/device/slots.js";
 import { HOLD_MS, initialState, reduce } from "../../.preview/device/state.js";
 import { changedControls, surfaceOf } from "../../.preview/device/surface.js";
@@ -14,6 +14,7 @@ function run(events, from = initialState()) {
 }
 
 const attachXl = { kind: "device-attached", device: { id: "xl-1", type: DEVICE_TYPE_XL } };
+const attachMini = { kind: "device-attached", device: { id: "mini-1", type: DEVICE_TYPE_MINI } };
 
 const BLANK = { kind: "blank" };
 
@@ -37,9 +38,9 @@ function runningIn(paneId, cmdline) {
   };
 }
 
-function liveState({ workspaces = [], panes = [], worktrees = [], processes = {} } = {}) {
+function liveState({ workspaces = [], panes = [], worktrees = [], processes = {}, attach = attachXl } = {}) {
   return run([
-    attachXl,
+    attach,
     { kind: "herdr-connection", connected: true },
     { kind: "herdr-snapshot", snapshot: { workspaces, panes, tabs: [] } },
     { kind: "herdr-worktrees", worktrees },
@@ -674,5 +675,126 @@ test("a dead service whose pane really did go falls back to the strip alone", ()
   assert.ok(
     device.keys.every((key) => key.attention === undefined),
     "no key may be marked for a pane the device is not showing"
+  );
+});
+
+/**
+ * The Mini, standalone (ADR-0008, `-vk6`). Same slot binding, same three
+ * channels, same column order as the XL — only what a Mini surface looks
+ * like changes, not which workstream is where.
+ */
+
+function miniLiveState(options) {
+  return liveState({ ...options, attach: attachMini });
+}
+
+test("a Mini alone gets the full 3 by 2 grid and no encoders at all", () => {
+  const [device] = surfaceOf(run([attachMini])).devices;
+  assert.equal(device.layout, "mini");
+  assert.equal(device.keys.length, 6);
+  assert.deepEqual(device.encoders, []);
+});
+
+test("the Mini's column order matches the XL's, so column 1 is the same workstream on both", () => {
+  const workspaces = [workspaceOn(1, "auth"), workspaceOn(2, "billing"), workspaceOn(3, "search")];
+  const [xl] = surfaceOf(liveState({ workspaces })).devices;
+  const [mini] = surfaceOf(miniLiveState({ workspaces })).devices;
+
+  // Both devices derive a workstream's identity through `workstreamIdentity`
+  // — the XL's own strip carries it as `branch`, the Mini's top-row key as
+  // `label` — so comparing the two, channel by channel, is exactly asking
+  // whether the same workstream sits in the same place on both.
+  for (let channel = 0; channel < CHANNEL_COUNT; channel++) {
+    assert.equal(mini.keys[channel].label, xl.encoders[channel * XL_LAYOUT.encodersPerChannel].block.branch);
+  }
+});
+
+test("an unassigned Mini slot invites a worktree, matching the XL's own behaviour", () => {
+  const [xl] = surfaceOf(liveState({ workspaces: [] })).devices;
+  const [mini] = surfaceOf(miniLiveState({ workspaces: [] })).devices;
+
+  assert.deepEqual(mini.keys[0], { kind: "empty", slot: 0 });
+  assert.deepEqual(xl.keys[0], { kind: "empty", slot: 0 });
+  assert.deepEqual(mini.keys[3], BLANK, "the bottom row of an empty channel stays blank, there being no pane to show");
+});
+
+test("the Mini's top row names the workstream and carries its aggregate agent state", () => {
+  const [device] = surfaceOf(
+    miniLiveState({
+      workspaces: [workspaceOn(1, "auth")],
+      worktrees: [{ path: "/w/auth", branch: "auth" }],
+      panes: [paneOn("w1", "a", { agent: "claude", agent_status: "blocked" })]
+    })
+  ).devices;
+
+  assert.deepEqual(device.keys[0], { kind: "workstream", label: "auth", status: "blocked", attention: "waiting" });
+});
+
+test("the Mini's top row carries no state at all for a workstream with no agents", () => {
+  const [device] = surfaceOf(
+    miniLiveState({
+      workspaces: [workspaceOn(1, "auth")],
+      worktrees: [{ path: "/w/auth", branch: "auth" }],
+      panes: [paneOn("w1", "svc")]
+    })
+  ).devices;
+  assert.deepEqual(device.keys[0], { kind: "workstream", label: "auth" });
+});
+
+test("the Mini's top row marks an orphaned dead service even though it names no pane", () => {
+  const withDeadService = { ...workspaceOn(1, "auth"), tokens: { sd_exit_dev: "1" } };
+  const [device] = surfaceOf(miniLiveState({ workspaces: [withDeadService], panes: [] })).devices;
+  assert.equal(device.keys[0].kind, "workstream");
+  assert.equal(device.keys[0].attention, "exited", "a pane-scoped attention map alone would have missed this");
+});
+
+test("the Mini's bottom row shows the channel's most urgent pane", () => {
+  const [device] = surfaceOf(
+    miniLiveState({
+      workspaces: [workspaceOn(1, "auth")],
+      panes: [
+        paneOn("w1", "a", { agent: "claude", agent_status: "idle", label: "idle one" }),
+        paneOn("w1", "b", { agent: "claude", agent_status: "blocked", label: "blocked one" })
+      ]
+    })
+  ).devices;
+
+  assert.equal(device.keys[3].kind, "pane");
+  assert.equal(device.keys[3].label, "blocked one", "the pane asking for the developer wins the key, not the idle one");
+  assert.equal(device.keys[3].attention, "waiting");
+});
+
+test("the Mini's bottom row stays blank for a workstream with no panes at all", () => {
+  const [device] = surfaceOf(miniLiveState({ workspaces: [workspaceOn(1, "auth")], panes: [] })).devices;
+  assert.deepEqual(device.keys[3], BLANK);
+});
+
+test("the Mini's top-row key names an identity, never a role — that concept is the XL rows' own", () => {
+  const [device] = surfaceOf(
+    miniLiveState({ workspaces: [workspaceOn(1, "auth")], panes: [paneOn("w1", "a", { agent: "claude", agent_status: "working" })] })
+  ).devices;
+  assert.equal(device.keys[0].kind, "workstream");
+  assert.ok(!("role" in device.keys[0]));
+});
+
+test("the Mini's redraw is scoped to the channel that changed, the same as the XL's", () => {
+  const workspaces = [workspaceOn(1, "auth"), workspaceOn(2, "billing")];
+  const quiet = miniLiveState({ workspaces, panes: [paneOn("w1", "a", { agent: "claude", agent_status: "working" })] });
+  const asking = run(
+    [
+      {
+        kind: "herdr-event",
+        at: 0,
+        event: { event: "pane_updated", data: { type: "pane_updated", pane: paneOn("w1", "a", { agent: "claude", agent_status: "blocked" }) } }
+      }
+    ],
+    quiet
+  );
+
+  const changes = changedControls(surfaceOf(quiet), surfaceOf(asking));
+  assert.deepEqual(
+    changes.map((change) => `${change.control}:${change.index}`),
+    ["key:0", "key:3"],
+    "only auth's own two keys redraw; billing's channel is untouched, and there are no encoders to redraw at all"
   );
 });

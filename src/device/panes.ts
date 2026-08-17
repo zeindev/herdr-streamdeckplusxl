@@ -1,4 +1,5 @@
-import type { PaneProcess, PaneSnapshot } from "../model.js";
+import type { AgentStatus, PaneProcess, PaneSnapshot } from "../model.js";
+import { REASON_ORDER, type AttentionReason } from "./attention.js";
 import { ROLE_ROWS, programNameOf, type Role } from "./role.js";
 import type { Workstream } from "./workstream.js";
 
@@ -100,6 +101,58 @@ export function agentPaneOf(workspaceId: string, panes: readonly PaneSnapshot[])
   return panes
     .filter((pane) => pane.workspace_id === workspaceId && pane.agent)
     .sort((left, right) => left.pane_id.localeCompare(right.pane_id))[0];
+}
+
+/**
+ * A workstream's most urgent pane, chosen by a defined ranking (`-vk6`): the
+ * Mini has room for exactly one pane per channel, so which one earns the key
+ * has to be decided somewhere, not left implicit.
+ *
+ * 1. Whichever pane is asking, in `REASON_ORDER` — the same priority a
+ *    `more` key already uses to pick which hidden reason to show, so the
+ *    Mini and the XL agree about what "most urgent" means.
+ * 2. Failing that, whichever pane is actively `working` — the one most
+ *    likely to become interesting next.
+ * 3. Failing that, any pane running an agent at all.
+ * 4. Failing that, any pane the workstream has.
+ *
+ * Each step breaks ties by `pane_id`, so the choice never depends on Herdr's
+ * own listing order and never flickers between two equally-ranked panes on a
+ * redraw neither of them caused.
+ */
+export function mostUrgentPaneOf(
+  workstream: Workstream,
+  panes: readonly PaneSnapshot[],
+  attention: ReadonlyMap<string, AttentionReason>
+): PaneSnapshot | undefined {
+  const mine = panes
+    .filter((pane) => pane.workspace_id === workstream.workspaceId)
+    .sort((left, right) => left.pane_id.localeCompare(right.pane_id));
+  if (mine.length === 0) return undefined;
+
+  for (const reason of REASON_ORDER) {
+    const asking = mine.find((pane) => attention.get(pane.pane_id) === reason);
+    if (asking) return asking;
+  }
+  return mine.find((pane) => pane.agent && pane.agent_status === "working") ?? mine.find((pane) => pane.agent) ?? mine[0];
+}
+
+/** `blocked` first, since it needs the developer; `working` and `done` next, most active first; `idle` last; `undefined` for no agents at all. */
+const AGENT_STATUS_PRIORITY: readonly AgentStatus[] = ["blocked", "working", "done", "idle"];
+
+/**
+ * A workstream's aggregated agent state (`-vk6`): the Mini has no room to
+ * show every pane individually, so its top-row key needs one status that
+ * stands for the whole channel. Only agent panes are counted — a pane with
+ * no agent reports Herdr's `unknown` for every service, and folding that
+ * into the aggregate would drown out a channel with one real agent and four
+ * quiet shells.
+ */
+export function channelAgentStatus(workstream: Workstream, panes: readonly PaneSnapshot[]): AgentStatus | undefined {
+  const statuses = new Set(
+    panes.filter((pane) => pane.workspace_id === workstream.workspaceId && pane.agent).map((pane) => pane.agent_status)
+  );
+  return AGENT_STATUS_PRIORITY.find((status) => statuses.has(status));
 }
 
 function directoryOf(cwd: string | undefined): string {

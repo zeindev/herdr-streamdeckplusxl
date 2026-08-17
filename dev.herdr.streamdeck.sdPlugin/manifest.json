@@ -3,7 +3,7 @@
   "Name": "Herdr",
   "Version": "0.1.0.0",
   "Author": "Herdr",
-  "Description": "Physical triage and control for Herdr.",
+  "Description": "A control surface for running several development workstreams in parallel with Herdr.",
   "Category": "Herdr",
   "CategoryIcon": "imgs/category-icon",
   "Icon": "imgs/plugin-icon",
@@ -11,92 +11,32 @@
   "SDKVersion": 3,
   "Software": { "MinimumVersion": "7.1" },
   "OS": [
-    { "Platform": "windows", "MinimumVersion": "10" },
-    { "Platform": "mac", "MinimumVersion": "13" }
+    { "Platform": "mac", "MinimumVersion": "13" },
+    { "Platform": "windows", "MinimumVersion": "10" }
   ],
   "Nodejs": { "Version": "24", "Debug": "enabled" },
   "UUID": "dev.herdr.streamdeck",
   "URL": "https://herdr.dev",
   "SupportURL": "https://github.com/herdrdev/herdr/issues",
-  "Profiles": [
-    {
-      "Name": "profiles/Herdr Stream Deck+",
-      "DeviceType": 7,
-      "Readonly": false,
-      "DontAutoSwitchWhenInstalled": false,
-      "AutoInstall": true
-    }
-  ],
   "Actions": [
     {
-      "Name": "Pinned Thread",
-      "UUID": "dev.herdr.streamdeck.pin",
+      "Name": "Channel Key",
+      "UUID": "dev.herdr.streamdeck.key",
       "Icon": "imgs/herdr",
-      "Tooltip": "Press to focus. Hold an occupied slot to unpin.",
-      "Controllers": ["Keypad"],
-      "PropertyInspectorPath": "focus-feedback.html",
-      "UserTitleEnabled": false,
-      "States": [{ "Image": "imgs/key", "TitleAlignment": "middle" }]
-    },
-    {
-      "Name": "Attention",
-      "UUID": "dev.herdr.streamdeck.attention",
-      "Icon": "imgs/herdr",
-      "Tooltip": "Jump to the next Herdr item that needs attention.",
+      "Tooltip": "One position in a workstream channel. What it shows depends on where it sits.",
       "Controllers": ["Keypad"],
       "UserTitleEnabled": false,
       "States": [{ "Image": "imgs/key", "TitleAlignment": "middle" }]
     },
     {
-      "Name": "Actions",
-      "UUID": "dev.herdr.streamdeck.command",
+      "Name": "Channel Encoder",
+      "UUID": "dev.herdr.streamdeck.encoder",
       "Icon": "imgs/herdr",
-      "Tooltip": "Open one-shot actions for the focused Herdr thread.",
-      "Controllers": ["Keypad"],
-      "UserTitleEnabled": false,
-      "States": [{ "Image": "imgs/key", "TitleAlignment": "middle" }]
-    },
-    {
-      "Name": "Navigation",
-      "UUID": "dev.herdr.streamdeck.pages",
-      "Icon": "imgs/herdr",
+      "Tooltip": "One workstream's dial and its touch-strip region.",
       "Controllers": ["Encoder"],
       "Encoder": {
         "layout": "$A0",
-        "TriggerDescription": { "Rotate": "Switch page or Inbox item", "Push": "Return to page one" }
-      },
-      "States": [{ "Image": "imgs/key" }]
-    },
-    {
-      "Name": "Attention Queue",
-      "UUID": "dev.herdr.streamdeck.attention-dial",
-      "Icon": "imgs/herdr",
-      "Controllers": ["Encoder"],
-      "Encoder": {
-        "layout": "$A0",
-        "TriggerDescription": { "Rotate": "Navigate selected question", "Push": "Open in Herdr" }
-      },
-      "States": [{ "Image": "imgs/key" }]
-    },
-    {
-      "Name": "Recent Threads",
-      "UUID": "dev.herdr.streamdeck.thread",
-      "Icon": "imgs/herdr",
-      "Controllers": ["Encoder"],
-      "Encoder": {
-        "layout": "$A0",
-        "TriggerDescription": { "Rotate": "Preview recent thread", "Push": "Focus previewed thread" }
-      },
-      "States": [{ "Image": "imgs/key" }]
-    },
-    {
-      "Name": "Settings",
-      "UUID": "dev.herdr.streamdeck.answer",
-      "Icon": "imgs/herdr",
-      "Controllers": ["Encoder"],
-      "Encoder": {
-        "layout": "$A0",
-        "TriggerDescription": { "Rotate": "Open, browse, or change a setting", "Push": "Open, edit, or finish" }
+        "TriggerDescription": { "Rotate": "Navigate the workstream", "Push": "Act on the selection" }
       },
       "States": [{ "Image": "imgs/key" }]
     }

@@ -23,24 +23,11 @@ type KeyView = {
   workingIntensity?: number;
 };
 
-export type StripView = (
-  | {
-      kind: "idle";
-      image: string;
-      page: string;
-      label: string;
-      status: AgentStatus | "offline";
-      frame: number;
-      sheepFrame?: number;
-      sheepBaas?: ReadonlyArray<{ frame: number; count: number }>;
-    }
-  | { kind: "page"; name: string; position: string; image: string; slots: Array<AgentStatus | "offline" | null> }
-  | { kind: "attention"; label: string; position: string; focused: boolean }
-  | { kind: "recent"; label: string; context?: string; position: string }
-  | { kind: "clear" }
-  | { kind: "command"; label: string }
-  | { kind: "settings"; editing: boolean; name: string; value: string; position: string }
-) & { timeout?: number };
+/**
+ * One region of the touch strip. The surface describes a control as a title and
+ * a value; anything richer belongs to the projection, not the renderer.
+ */
+export type StripView = { title: string; value: string };
 
 export function keySvg(view: KeyView, theme?: ResolvedThemeSnapshot | null): string {
   if (view.blank) return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>`;
@@ -108,8 +95,16 @@ export function dialSvg(
   </svg>`;
 }
 
+/**
+ * Renders one 200px region of the strip.
+ *
+ * The strip is one continuous composition drawn through several regions, so the
+ * canvas spans the whole strip and each region is a window onto it. Its width
+ * therefore depends on the device: six regions on the Stream Deck + XL.
+ */
 export function stripRegionSvg(
   region: number,
+  regionCount: number,
   view: StripView,
   theme?: ResolvedThemeSnapshot | null
 ): string {
@@ -117,155 +112,15 @@ export function stripRegionSvg(
   const text = oledForeground(theme, "text");
   const subtext = oledForeground(theme, "subtext");
   const accent = palette ? oledColor(palette.accent, 3) : "#ffffff";
-  const yellow = palette ? oledColor(palette.yellow, 3) : "#ffffff";
-  let content: string;
-
-  switch (view.kind) {
-    case "idle":
-      content = idleStrip(view, theme);
-      break;
-    case "page":
-      content = `<rect width="6" height="100" fill="${accent}"/>
-        <text x="28" y="27" ${monoFont} font-size="19" fill="${subtext}">${escapeXml(`PINNED · ${view.position}`)}</text>
-        <text x="28" y="74" ${monoFont} font-size="44" fill="${text}">${escapeXml(truncate(view.name, 13))}</text>
-        ${pageStatusMap(view.slots, theme)}
-        ${stripLogo(view.image)}`;
-      break;
-    case "attention":
-      content = `<rect width="6" height="100" fill="${yellow}"/>
-        <text x="28" y="27" ${monoFont} font-size="19" fill="${yellow}">NEEDS YOU</text>
-        <text x="28" y="70" ${monoFont} font-size="42" fill="${text}">${escapeXml(truncate(view.label, 16))}</text>
-        <text x="772" y="27" ${monoFont} font-size="19" fill="${subtext}" text-anchor="end">${escapeXml(view.position)}</text>
-        <text x="772" y="70" ${monoFont} font-size="21" fill="${text}" text-anchor="end">${view.focused ? "QUESTION IN HERDR" : "PRESS DIAL 2"}</text>`;
-      break;
-    case "recent":
-      content = `<rect width="6" height="100" fill="${accent}"/>
-        <text x="28" y="27" ${monoFont} font-size="19" fill="${accent}">RECENT THREAD</text>
-        <text x="28" y="70" ${monoFont} font-size="42" fill="${text}">${escapeXml(truncate(view.label, 18))}</text>
-        <text x="772" y="27" ${monoFont} font-size="19" fill="${subtext}" text-anchor="end">${escapeXml(view.position)}</text>
-        <text x="772" y="54" ${monoFont} font-size="18" fill="${subtext}" text-anchor="end">${escapeXml(truncate(view.context ?? "", 20))}</text>
-        <text x="772" y="78" ${monoFont} font-size="21" fill="${text}" text-anchor="end">PRESS DIAL 3</text>`;
-      break;
-    case "clear":
-      content = `<text x="400" y="65" ${monoFont} font-size="42" fill="${text}" text-anchor="middle">ALL CLEAR</text>`;
-      break;
-    case "command":
-      content = `<rect width="6" height="100" fill="${accent}"/>
-        <text x="28" y="27" ${monoFont} font-size="19" fill="${accent}">ACTIONS FOR</text>
-        <text x="28" y="70" ${monoFont} font-size="42" fill="${text}">${escapeXml(truncate(view.label, 22))}</text>`;
-      break;
-    case "settings": {
-      const control = view.editing
-        ? [["DIAL TURN", "CHANGE"], ["DIAL PRESS", "DONE"], ["DIAL HOLD", "EXIT"]]
-        : [["DIAL TURN", "BROWSE"], ["DIAL PRESS", "EDIT"], ["DIAL HOLD", "EXIT"]];
-      content = `<text x="24" y="27" ${monoFont} font-size="19" fill="${view.editing ? accent : subtext}">${view.editing ? "EDITING" : "SETTINGS"} · ${escapeXml(view.position)}</text>
-        <text x="24" y="72" ${monoFont} font-size="34" fill="${text}">${escapeXml(truncate(view.name, 17))}</text>
-        <text x="510" y="72" ${monoFont} font-size="34" fill="${view.editing ? accent : text}" text-anchor="end">${escapeXml(truncate(view.value, 12))}</text>
-        <line x1="575" y1="0" x2="575" y2="100" stroke="${subtext}" stroke-opacity=".45"/>
-        <text x="702" y="19" ${monoFont} font-size="18" fill="${subtext}" text-anchor="middle">CONTROLS</text>
-        <line x1="702" y1="29" x2="702" y2="92" stroke="${subtext}" stroke-opacity=".45"/>
-        ${control.map(([input, action], index) => `<text x="590" y="${42 + index * 23}" ${monoFont} font-size="18" fill="${subtext}">${input}</text><text x="716" y="${42 + index * 23}" ${monoFont} font-size="18" fill="${index === 0 ? text : subtext}">${action}</text>`).join("")}`;
-      break;
-    }
-  }
-
-  const timeoutBar = view.timeout
-    ? `<rect x="0" y="96" width="${(800 * view.timeout).toFixed(1)}" height="4" fill="${accent}"/>`
-    : "";
+  const width = regionCount * 200;
+  const x = region * 200 + 18;
+  const bar = view.title || view.value ? `<rect x="${region * 200}" y="0" width="5" height="100" fill="${accent}"/>` : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="${region * 200} 0 200 100">
-    <rect width="800" height="100" fill="#000000"/>
-    ${content}${timeoutBar}
+    <rect width="${width}" height="100" fill="#000000"/>
+    ${bar}
+    <text x="${x}" y="32" ${monoFont} font-size="20" letter-spacing="0.2" fill="${subtext}">${escapeXml(truncate(view.title, 10))}</text>
+    <text x="${x}" y="73" ${monoFont} font-size="28" fill="${text}">${escapeXml(truncate(view.value, 10))}</text>
   </svg>`;
-}
-
-function pageStatusMap(
-  slots: Array<AgentStatus | "offline" | null>,
-  theme?: ResolvedThemeSnapshot | null
-): string {
-  const empty = oledForeground(theme, "subtext");
-  return Array.from({ length: 6 }, (_, slot) => {
-    const status = slots[slot] ?? null;
-    const visual = statusAppearance(status ?? undefined, theme);
-    const x = 462 + (slot % 3) * 31;
-    const y = 29 + Math.floor(slot / 3) * 41;
-    return `<circle cx="${x}" cy="${y}" r="10" fill="none" stroke="${visual?.color ?? empty}" stroke-width="${visual?.width ?? 2}"${visual?.dash ? ` stroke-dasharray="${visual.dash}"` : ""}${status ? "" : ' stroke-opacity=".35"'}/>`;
-  }).join("");
-}
-
-function idleStrip(view: Extract<StripView, { kind: "idle" }>, theme?: ResolvedThemeSnapshot | null): string {
-  const text = oledForeground(theme, "text");
-  const subtext = oledForeground(theme, "subtext");
-  const indicator = threadStatusIndicator(view.status, view.frame, theme);
-  return `<text x="24" y="27" ${monoFont} font-size="19" fill="${subtext}">${escapeXml(truncate(view.page, 28))}</text>
-    ${indicator}<text x="60" y="75" ${monoFont} font-size="44" fill="${text}">${escapeXml(truncate(view.label, 22))}</text>
-    ${stripLogo(view.image, view.sheepFrame, view.sheepBaas, theme)}`;
-}
-
-function stripLogo(
-  image: string,
-  frame?: number,
-  baas: ReadonlyArray<{ frame: number; count: number }> = [],
-  theme?: ResolvedThemeSnapshot | null
-): string {
-  if (frame === undefined) return `<image href="${image}" x="700" y="0" width="100" height="100"/>`;
-  const running = Math.max(0, frame - 6);
-  const oldX = 700 - 24 * running - 1.4 * running ** 2;
-  const oldY = frame <= 6
-    ? -18 * Math.sin(Math.PI * frame / 6)
-    : -14 * Math.abs(Math.sin(Math.PI * running / 3));
-  const oldTilt = frame <= 6 ? 5 * Math.sin(Math.PI * frame / 3) : 8 * Math.sin(Math.PI * running / 1.5);
-  const oldSheep = sheepImage(image, oldX, oldY, oldTilt);
-  const replacementFrame = frame - 8;
-  let replacement = "";
-  if (replacementFrame >= 0) {
-    const progress = Math.min(1, replacementFrame / 10);
-    const eased = 1 - (1 - progress) ** 3;
-    replacement = sheepImage(image, 800 - 100 * eased, -18 * Math.sin(Math.PI * progress), -6 * Math.sin(Math.PI * progress));
-  }
-  const burst = baas.find(({ frame: start }) => frame >= start && frame <= start + 1);
-  const baa = sheepBaaBurst(frame >= 2 && frame <= 4 ? 1 : burst?.count ?? 0, oldX, theme);
-  return `${oldSheep}${replacement}${baa}`;
-}
-
-function sheepBaaBurst(count: number, sheepX: number, theme?: ResolvedThemeSnapshot | null): string {
-  const layouts = [
-    [],
-    [[0, 0, 0]],
-    [[-26, 8, -14], [26, 8, 14]],
-    [[-46, 12, -18], [0, 0, 0], [46, 12, 18]]
-  ];
-  return layouts[count].map(([offset, drop, tilt]) => {
-    const x = sheepX + 50 + offset;
-    const y = 18 + drop;
-    return `<text x="${x.toFixed(1)}" y="${y}" ${monoFont} font-size="18" fill="${oledForeground(theme, "text")}" text-anchor="middle" transform="rotate(${tilt} ${x.toFixed(1)} ${y})">BAA!</text>`;
-  }).join("");
-}
-
-function sheepImage(image: string, x: number, y: number, tilt: number): string {
-  return `<image href="${image}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="100" height="100" transform="rotate(${tilt.toFixed(1)} ${(x + 50).toFixed(1)} ${(y + 50).toFixed(1)})"/>`;
-}
-
-function threadStatusIndicator(
-  status: AgentStatus | "offline",
-  frame: number,
-  theme?: ResolvedThemeSnapshot | null
-): string {
-  const color = statusAppearance(status, theme)?.color ?? oledForeground(theme, "subtext");
-  if (status === "working") {
-    const positions = [[30, 49], [43, 49], [43, 62], [43, 75], [30, 75], [30, 62]];
-    const head = Math.floor(frame) % positions.length;
-    return positions.map(([x, y], index) => {
-      const distance = (head - index + positions.length) % positions.length;
-      return `<circle cx="${x}" cy="${y}" r="4" fill="${color}" fill-opacity="${[1, 0.55, 0.25][distance] ?? 0.08}"/>`;
-    }).join("");
-  }
-  if (status === "blocked") {
-    return `<circle cx="36.5" cy="62" r="9" fill="none" stroke="${color}" stroke-width="4"/>
-      <circle cx="36.5" cy="62" r="3.5" fill="${color}"/>`;
-  }
-  if (status === "done") return `<circle cx="36.5" cy="62" r="8" fill="${color}"/>`;
-  if (status === "idle") return `<path d="M27.5 62L34 68.5L46 54.5" fill="none" stroke="${color}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`;
-  return `<circle cx="36.5" cy="62" r="8" fill="none" stroke="${color}" stroke-width="3"/>`;
 }
 
 function workingAnimation(view: KeyView, theme?: ResolvedThemeSnapshot | null): string {

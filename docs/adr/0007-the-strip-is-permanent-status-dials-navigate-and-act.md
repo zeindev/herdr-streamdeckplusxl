@@ -4,6 +4,8 @@ status: accepted
 
 # The strip is permanent status; the dials navigate and act
 
+**Correction, found while building the adapter (ticket `-2kw`):** an encoder and the touch-strip region above it are **one control**, not two. The Stream Deck SDK addresses them through a single action, whose `setImage` draws the dial face and whose `setFeedback` draws the strip region. The XL's 1200px strip is six 200px regions, one per encoder. So a channel owns **two encoders**, each with its own region — not "two dials and two strip regions" as if there were four things. The wording below is kept for the record; read every pairing as one control.
+
 Each channel's two touch-strip regions (400px) permanently show that workstream's branch, ticket count, pull-request state, and outstanding attention. Nothing is hidden behind a rotate, so a glance answers "what is the state of this workstream" with no input at all. The dials are therefore free to be controls rather than selectors: dial 1 rotates through the workstream's panes and attention items and pushes to focus, then scrubs scrollback once a pane is focused (`PaneInfo.scroll`); dial 2 rotates a short verb list and pushes to commit the chosen verb.
 
 **Amended by ADR-0011.** The frequent verbs — focus workstream, Git and pull request, actions — moved to three fixed control keys on each channel's bottom row, which is better for muscle memory than a rotate-to-discover menu. Dial 2 keeps only the rarer worktree lifecycle verbs such as create and remove, where rotate-to-discover costs little because the action is deliberate anyway.

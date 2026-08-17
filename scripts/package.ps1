@@ -10,7 +10,6 @@ try {
     $package = Get-Content "package.json" -Raw | ConvertFrom-Json
     npm run build
     npx streamdeck validate dev.herdr.streamdeck.sdPlugin --no-update-check
-    & "$PSScriptRoot\package-profile.ps1" -OutputDirectory $OutputDirectory -Version $package.version -DryRun:$DryRun
     $staging = Join-Path ([IO.Path]::GetTempPath()) "herdr-streamdeck-pack-$([guid]::NewGuid())"
     $packSource = Join-Path $staging "dev.herdr.streamdeck.sdPlugin"
     New-Item -ItemType Directory $staging | Out-Null

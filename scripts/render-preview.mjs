@@ -1,68 +1,98 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+/**
+ * Renders the whole Stream Deck + XL at its real resolution, straight from the
+ * surface the reducer projects.
+ *
+ * This is the feedback loop for work on the device: it needs no hardware, and
+ * because it draws the projected surface rather than hand-written examples, an
+ * image that looks wrong means the projection is wrong.
+ */
+import { mkdirSync, writeFileSync } from "node:fs";
 
-import { keySvg, stripRegionSvg } from "../.preview/render.js";
 import { copiedHerdrTheme } from "../.preview/herdr-themes.js";
+import { DEVICE_TYPE_XL, XL_LAYOUT } from "../.preview/device/geometry.js";
+import { initialState, reduce } from "../.preview/device/state.js";
+import { surfaceOf } from "../.preview/device/surface.js";
+import { dialSvg, keySvg, stripRegionSvg } from "../.preview/render.js";
+
+const KEY = 144;
+const GAP = 14;
+const STRIP_HEIGHT = 100;
 
 const dark = copiedHerdrTheme("catppuccin");
 const light = copiedHerdrTheme("catppuccin-latte");
 if (!dark || !light) throw new Error("Copied Herdr preview themes are missing");
-const logoImage = `data:image/svg+xml;base64,${Buffer.from(readFileSync("dev.herdr.streamdeck.sdPlugin/imgs/herdr_logo.svg", "utf8").replace("currentColor", "#959391")).toString("base64")}`;
+
+function apply(events, from = initialState()) {
+  let state = from;
+  for (const event of events) state = reduce(state, event).state;
+  return state;
+}
+
+const attach = { kind: "device-attached", device: { id: "preview", type: DEVICE_TYPE_XL } };
+
+const scenes = {
+  offline: apply([attach]),
+  syncing: apply([attach, { kind: "herdr-connection", connected: true }]),
+  live: apply([
+    attach,
+    { kind: "herdr-connection", connected: true },
+    {
+      kind: "herdr-snapshot",
+      snapshot: {
+        workspaces: [{ workspace_id: "w1" }, { workspace_id: "w2" }, { workspace_id: "w3" }],
+        tabs: [],
+        panes: Array.from({ length: 14 }, (_, index) => ({ pane_id: `w1:p${index}` }))
+      }
+    }
+  ])
+};
 
 mkdirSync("artifacts", { recursive: true });
-for (const [name, value] of [["dark", dark], ["light", light]]) {
-  writeFileSync(`artifacts/device-preview-${name}.svg`, cleanSvg(devicePreview(value)));
-}
-writeFileSync("artifacts/device-preview-command-dark.svg", cleanSvg(devicePreview(dark, "command")));
-writeFileSync("artifacts/device-preview-attention-dark.svg", cleanSvg(devicePreview(dark, "attention")));
-writeFileSync("artifacts/device-preview-stop-armed-dark.svg", cleanSvg(devicePreview(dark, "stop")));
-writeFileSync("artifacts/device-preview-page-dark.svg", cleanSvg(devicePreview(dark, "page")));
-
-function devicePreview(activeTheme, mode = "dashboard") {
-  const dashboardKeys = [
-    { label: "herdr-streamdeck", slot: 0, status: "working", selected: true, workingFrame: 5, workingMotion: "darken" },
-    { label: "review-suite", slot: 1, status: "working", workingFrame: 5, workingMotion: "lighten" },
-    { label: "kraken-backup", slot: 2, status: "working", workingFrame: 5, workingMotion: "darken" },
-    { label: "INBOX", count: 2, status: "blocked" },
-    { label: "", slot: 3, empty: true },
-    { label: "daedalus", slot: 4, status: "idle" },
-    { label: "vod-graph", slot: 5, status: "working", workingFrame: 5, workingMotion: "rainbow" },
-    { label: "ACTIONS" }
-  ];
-  const commandActions = ["CONTINUE", "STATUS", "VERIFY", "ZOOM", "—", mode === "stop" ? "STOP AGAIN" : "STOP"]
-    .map((label, slot) => ({ label, detail: mode === "stop" && slot === 5 ? "PRESS AGAIN" : slot === 4 ? "UNASSIGNED" : undefined, slot, danger: mode === "stop" && slot === 5 }));
-  const commandKeys = [
-    ...commandActions.slice(0, 3),
-    { label: "INBOX", count: 2, status: "blocked" },
-    ...commandActions.slice(3),
-    { label: "BACK" }
-  ];
-  const keys = (["command", "stop"].includes(mode) ? commandKeys : dashboardKeys).map((view) => keySvg(view, activeTheme));
-  const strip = mode === "attention"
-    ? { kind: "attention", label: "api-rewrite", position: "1 / 2", focused: true }
-    : mode === "page"
-      ? { kind: "page", name: "Page 1", position: "1 / 3", image: logoImage,
-          slots: ["working", "working", "working", null, "idle", "blocked"] }
-    : mode === "dashboard"
-      ? {
-          kind: "idle", image: logoImage, page: "Page 1",
-          label: "herdr-streamdeck", status: "working", frame: 5
-        }
-      : { kind: "command", label: "review-suite" };
-  const dials = [0, 1, 2, 3].map((region) => stripRegionSvg(region, strip, activeTheme));
-  const placedKeys = keys.map((svg, index) => place(svg, 88 + (index % 4) * 160, 18 + Math.floor(index / 4) * 160)).join("\n");
-  const placedDials = dials.map((svg, index) => place(svg, index * 200, 348)).join("\n");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="466" viewBox="0 0 800 466">
-    <rect width="800" height="466" rx="28" fill="#101015"/>
-    ${placedKeys}
-    <rect y="342" width="800" height="112" rx="10" fill="#050507"/>
-    ${placedDials}
-  </svg>`;
+for (const [name, state] of Object.entries(scenes)) {
+  for (const [appearance, theme] of [["dark", dark], ["light", light]]) {
+    if (name !== "live" && appearance === "light") continue;
+    writeFileSync(`artifacts/xl-${name}-${appearance}.svg`, devicePreview(state, theme));
+  }
 }
 
-function place(svg, x, y) {
-  return svg.replace("<svg ", `<svg x="${x}" y="${y}" `);
+function devicePreview(state, theme) {
+  const [device] = surfaceOf(state).devices;
+  if (!device) throw new Error("The preview state has no attached device");
+
+  const width = XL_LAYOUT.columns * KEY + (XL_LAYOUT.columns + 1) * GAP;
+  const gridHeight = XL_LAYOUT.rows * KEY + (XL_LAYOUT.rows + 1) * GAP;
+  const stripWidth = XL_LAYOUT.encoders * 200;
+  const height = gridHeight + STRIP_HEIGHT + GAP * 2;
+
+  const keys = device.keys.map((face, index) => {
+    const column = index % XL_LAYOUT.columns;
+    const row = Math.floor(index / XL_LAYOUT.columns);
+    const x = GAP + column * (KEY + GAP);
+    const y = GAP + row * (KEY + GAP);
+    const view = face.kind === "blank" ? { label: "", blank: true } : { label: face.label, detail: face.detail };
+    return place(keySvg(view, theme), x, y, KEY, KEY);
+  });
+
+  // The strip is one continuous composition drawn through its regions, so the
+  // preview lays them edge to edge exactly as the hardware does.
+  const stripX = (width - stripWidth) / 2;
+  const strip = device.encoders.map((face, index) =>
+    place(stripRegionSvg(index, XL_LAYOUT.encoders, face, theme), stripX + index * 200, gridHeight + GAP, 200, STRIP_HEIGHT)
+  );
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <rect width="${width}" height="${height}" fill="#141414"/>
+  ${keys.join("\n  ")}
+  ${strip.join("\n  ")}
+</svg>`;
 }
 
-function cleanSvg(svg) {
-  return svg.replace(/[ \t]+$/gm, "");
+/** Nests a rendered control into the device sheet at its physical position. */
+function place(svg, x, y, width, height) {
+  const inner = svg.replace(/^<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");
+  const viewBox = /viewBox="([^"]+)"/.exec(svg)?.[1] ?? `0 0 ${width} ${height}`;
+  return `<svg x="${x}" y="${y}" width="${width}" height="${height}" viewBox="${viewBox}">${inner}</svg>`;
 }
+
+// Referenced so the dial renderer stays covered by the preview build.
+void dialSvg;

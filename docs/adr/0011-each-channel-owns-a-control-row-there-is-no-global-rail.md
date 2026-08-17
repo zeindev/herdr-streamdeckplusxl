@@ -25,3 +25,4 @@ Three fixed keys per channel also repair the weakest part of ADR-0007: dial 2's 
 - Truly global surfaces — the cross-workstream attention queue, worktree creation, settings, recent — exist only on the Mini. On an XL-only rig they are reachable through per-channel controls instead.
 - The overflow count from ADR-0009 loses its rail. On an XL-only rig it renders on the rightmost strip region; when a Mini is attached it moves to the Mini. This placement is provisional and should be validated on hardware.
 - Nine keys per channel for panes, against a typical six or seven, leaves useful headroom without waste.
+- A channel owns two **encoders**, each being a dial and its strip region as one addressable control, so the device has 36 keys and 6 encoders — 42 controls, not 48. See the correction in ADR-0007.

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { CHANNEL_COUNT, DEVICE_TYPE_XL, HEADER_ROW, XL_LAYOUT, channelKeyIndex } from "../../.preview/device/geometry.js";
+import { CHANNEL_COUNT, DEVICE_TYPE_XL, XL_LAYOUT, channelKeyIndex } from "../../.preview/device/geometry.js";
 import { initialState, reduce } from "../../.preview/device/state.js";
 import { changedControls, surfaceOf } from "../../.preview/device/surface.js";
 import { recordedWorkspace, recordedWorktree } from "../herdr/fixtures/recorded.mjs";
@@ -14,12 +14,15 @@ function run(events, from = initialState()) {
 
 const attachXl = { kind: "device-attached", device: { id: "xl-1", type: DEVICE_TYPE_XL } };
 
-function liveState({ workspaces = [], panes = [], worktrees = [] } = {}) {
+const BLANK = { kind: "blank" };
+
+function liveState({ workspaces = [], panes = [], worktrees = [], processes = {} } = {}) {
   return run([
     attachXl,
     { kind: "herdr-connection", connected: true },
     { kind: "herdr-snapshot", snapshot: { workspaces, panes, tabs: [] } },
-    { kind: "herdr-worktrees", worktrees }
+    { kind: "herdr-worktrees", worktrees },
+    ...Object.entries(processes).map(([paneId, process]) => ({ kind: "herdr-process-info", paneId, process }))
   ]);
 }
 
@@ -35,10 +38,18 @@ function workspaceOn(number, label) {
   };
 }
 
-/** The three keys of one channel's header row, left to right. */
-function header(device, channel) {
-  return [0, 1, 2].map((column) => device.keys[channelKeyIndex(XL_LAYOUT, channel, column, HEADER_ROW)]);
+/** One row of one channel, left to right. */
+function rowOf(device, channel, row) {
+  return [0, 1, 2].map((column) => device.keys[channelKeyIndex(XL_LAYOUT, channel, column, row)]);
 }
+
+/** A pane belonging to a workstream, running whatever the caller says. */
+const paneOn = (workspaceId, id, overrides = {}) => ({
+  pane_id: `${workspaceId}:${id}`,
+  workspace_id: workspaceId,
+  agent_status: "unknown",
+  ...overrides
+});
 
 test("no attached device means nothing to draw", () => {
   assert.deepEqual(surfaceOf(initialState()).devices, []);
@@ -67,79 +78,95 @@ test("an unassigned channel invites a worktree rather than showing nothing", () 
   const device = surfaceOf(liveState({ panes: [{ pane_id: "w1:p1" }] })).devices[0];
 
   for (let channel = 0; channel < CHANNEL_COUNT; channel++) {
-    assert.deepEqual(header(device, channel)[0], { kind: "empty", slot: channel });
+    assert.deepEqual(rowOf(device, channel, 0)[0], { kind: "empty", slot: channel });
   }
 });
 
-test("three channels sit side by side in Herdr's workspace order", () => {
+test("three channels sit side by side, each showing only its own panes", () => {
   const workspaces = [1, 2, 3].map((number) => workspaceOn(number, `stream ${number}`));
-  const device = surfaceOf(liveState({ workspaces })).devices[0];
+  const panes = [1, 2, 3].map((number) => paneOn(`w${number}`, "p1", { agent: "claude", agent_status: "idle" }));
+  const device = surfaceOf(liveState({ workspaces, panes })).devices[0];
 
-  // The channel is the position, so a workstream is found by where it sits.
+  // The channel is the position, so a workstream's panes are found by where they sit.
   assert.deepEqual(
-    [0, 1, 2].map((channel) => header(device, channel)[0].label),
-    ["stream 1", "stream 2", "stream 3"]
+    [0, 1, 2].map((channel) => rowOf(device, channel, 0)[0].label),
+    ["claude", "claude", "claude"],
+    "an agent key is named for the agent, not for a terminal title that keeps changing"
   );
+  assert.ok([0, 1, 2].every((channel) => rowOf(device, channel, 0)[0].role === "agent"));
 });
 
 test("each channel owns three columns and nothing outside them", () => {
-  const workspaces = [recordedWorkspace({ workspace_id: "w1", number: 1 })];
-  const device = surfaceOf(liveState({ workspaces })).devices[0];
-
-  // Only the first channel is bound, so columns 3 to 8 must hold no identity.
-  for (let column = 3; column < XL_LAYOUT.columns; column++) {
-    const face = device.keys[HEADER_ROW * XL_LAYOUT.columns + column];
-    assert.notEqual(face.kind, "status", `column ${column} belongs to another channel`);
-  }
-});
-
-test("a channel names its workstream and how it is doing; the branch is on the strip", () => {
-  const workspace = recordedWorkspace({ workspace_id: "w6", number: 1 });
   const device = surfaceOf(
     liveState({
-      workspaces: [workspace],
-      panes: [{ pane_id: "w6:p1", workspace_id: "w6", agent: "claude", agent_status: "blocked" }],
-      worktrees: [recordedWorktree()]
+      workspaces: [workspaceOn(1, "auth")],
+      panes: [paneOn("w1", "p1", { agent: "claude" })]
     })
   ).devices[0];
 
-  const [identity, state] = header(device, 0);
-  assert.equal(identity.label, "fixture probe", "the label the developer chose leads");
-  assert.equal(identity.detail, "herdr-streamdeckplusxl", "the repository follows it");
-  assert.deepEqual(state, { kind: "status", label: "BLOCKED", status: "blocked" });
-
-  // The branch moved to the strip, where it has room not to be cut short.
-  assert.equal(device.encoders[0].block.branch, "sd-fixture-probe");
-  assert.ok(header(device, 0).every((face) => face.kind !== "text" || face.label !== "sd-fixture-probe"));
-});
-
-test("every state carries its word, so colour is never the only reading", () => {
-  const workspace = recordedWorkspace({ workspace_id: "w6", number: 1 });
-  for (const status of ["idle", "working", "blocked", "done", "unknown"]) {
-    const device = surfaceOf(
-      liveState({
-        workspaces: [workspace],
-        panes: [{ pane_id: "w6:p1", workspace_id: "w6", agent: "claude", agent_status: status }]
-      })
-    ).devices[0];
-    assert.deepEqual(header(device, 0)[1], { kind: "status", label: status.toUpperCase(), status });
+  // Only the first channel is bound, so columns 3 to 8 must hold no pane.
+  for (let column = 3; column < XL_LAYOUT.columns; column++) {
+    assert.notEqual(device.keys[column].kind, "pane", `column ${column} belongs to another channel`);
   }
 });
 
-test("a workstream with no agent says so rather than reporting unknown", () => {
-  const workspace = recordedWorkspace({ workspace_id: "w6", number: 1 });
+test("a channel's rows are its roles, top to bottom", () => {
+  const workspace = workspaceOn(1, "auth");
   const device = surfaceOf(
-    liveState({ workspaces: [workspace], panes: [{ pane_id: "w6:p1", workspace_id: "w6", agent_status: "unknown" }] })
+    liveState({
+      workspaces: [workspace],
+      panes: [
+        paneOn("w1", "agent", { agent: "claude", agent_status: "blocked" }),
+        paneOn("w1", "shell")
+      ],
+      processes: { "w1:shell": { pid: 1, name: "zsh", argv0: "zsh", cmdline: "-zsh" } }
+    })
   ).devices[0];
 
-  assert.deepEqual(header(device, 0)[1], { kind: "text", label: "NO AGENT" });
+  assert.equal(rowOf(device, 0, 0)[0].role, "agent");
+  assert.deepEqual(rowOf(device, 0, 1), [BLANK, BLANK, BLANK], "no server is running");
+  assert.equal(rowOf(device, 0, 2)[0].role, "shell");
+  assert.deepEqual(rowOf(device, 0, 3), [BLANK, BLANK, BLANK], "the control row is another ticket's");
 });
 
-test("a workspace with no worktree is shown and labelled, never dropped", () => {
-  const workspace = recordedWorkspace({ workspace_id: "w6", number: 1, worktree: null, label: "primary" });
-  const device = surfaceOf(liveState({ workspaces: [workspace] })).devices[0];
+test("a pane with no agent reports no state, since Herdr has none to give", () => {
+  // Every service pane reports `unknown`, so drawing that would mark every one
+  // of them with an outline that says nothing.
+  const device = surfaceOf(
+    liveState({
+      workspaces: [workspaceOn(1, "auth")],
+      panes: [paneOn("w1", "sh")],
+      processes: { "w1:sh": { pid: 1, name: "zsh", argv0: "zsh", cmdline: "-zsh" } }
+    })
+  ).devices[0];
 
-  assert.equal(header(device, 0)[0].label, "primary");
+  const face = rowOf(device, 0, 2)[0];
+  assert.equal(face.role, "shell");
+  assert.ok(!("status" in face), "no agent, no state reading");
+});
+
+test("a pane key carries its live state, named as well as coloured", () => {
+  for (const status of ["idle", "working", "blocked", "done", "unknown"]) {
+    const device = surfaceOf(
+      liveState({
+        workspaces: [workspaceOn(1, "auth")],
+        panes: [paneOn("w1", "p1", { agent: "claude", agent_status: status })]
+      })
+    ).devices[0];
+    const face = rowOf(device, 0, 0)[0];
+    assert.equal(face.status, status, "the state is on the face, not only in a colour");
+    assert.equal(face.role, "agent");
+    assert.ok(face.label.length > 0, "and the pane is named");
+  }
+});
+
+test("a workspace with no worktree still shows its panes", () => {
+  const workspace = { ...workspaceOn(1, "primary"), worktree: null };
+  const device = surfaceOf(
+    liveState({ workspaces: [workspace], panes: [paneOn("w1", "p1", { agent: "claude" })] })
+  ).devices[0];
+
+  assert.equal(rowOf(device, 0, 0)[0].role, "agent");
   assert.equal(device.encoders[0].block.branch, "NO WORKTREE");
 });
 
@@ -154,14 +181,17 @@ test("the three ways a branch can be absent read differently on the strip", () =
   assert.equal(branchOf(liveState({ workspaces: [recordedWorkspace({ workspace_id: "w6", number: 1, worktree: null })] })), "NO WORKTREE");
 });
 
-test("everything below the header row is still blank, awaiting panes and controls", () => {
-  const workspaces = [recordedWorkspace({ workspace_id: "w1", number: 1 })];
-  const device = surfaceOf(liveState({ workspaces })).devices[0];
+test("the control row stays blank, since it belongs to another ticket", () => {
+  const device = surfaceOf(
+    liveState({
+      workspaces: [workspaceOn(1, "auth")],
+      panes: [paneOn("w1", "p1", { agent: "claude" })]
+    })
+  ).devices[0];
 
-  for (let row = HEADER_ROW + 1; row < XL_LAYOUT.rows; row++) {
-    for (let column = 0; column < XL_LAYOUT.columns; column++) {
-      assert.equal(device.keys[row * XL_LAYOUT.columns + column].kind, "blank");
-    }
+  const last = XL_LAYOUT.rows - 1;
+  for (let column = 0; column < XL_LAYOUT.columns; column++) {
+    assert.equal(device.keys[last * XL_LAYOUT.columns + column].kind, "blank");
   }
 });
 
@@ -272,9 +302,9 @@ test("nothing is reported as changed between identical surfaces", () => {
 test("only the controls that actually differ are reported as changed", () => {
   // This is what keeps the pane_updated flood from redrawing the whole device.
   const workspaces = [workspaceOn(1, "auth"), workspaceOn(2, "billing")];
-  const pane = (status) => [{ pane_id: "w2:p1", workspace_id: "w2", agent: "claude", agent_status: status }];
-  const before = liveState({ workspaces, panes: pane("working") });
-  const after = liveState({ workspaces, panes: pane("blocked") });
+  const panes = (status) => [paneOn("w2", "p1", { agent: "claude", agent_status: status })];
+  const before = liveState({ workspaces, panes: panes("working") });
+  const after = liveState({ workspaces, panes: panes("blocked") });
 
   const changes = changedControls(surfaceOf(before), surfaceOf(after));
   assert.ok(changes.length > 0, "the second channel's agent went blocked, so something must redraw");
@@ -283,8 +313,8 @@ test("only the controls that actually differ are reported as changed", () => {
     "only the second channel's strip regions may redraw"
   );
   assert.ok(
-    changes.every((change) => change.control !== "key" || change.index === 4),
-    "only the second channel's state key may redraw"
+    changes.every((change) => change.control !== "key" || change.index === 3),
+    "only that agent's own key may redraw"
   );
 });
 

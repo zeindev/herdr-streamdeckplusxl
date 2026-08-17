@@ -1,5 +1,6 @@
 import type { HerdrEvent } from "../herdr/protocol.js";
-import type { HerdrSnapshot, ResolvedThemeSnapshot, WorktreeEntry } from "../model.js";
+import type { HerdrSnapshot, PaneProcess, ResolvedThemeSnapshot, WorktreeEntry } from "../model.js";
+import type { RoleOverrides } from "./role.js";
 import type { Slots } from "./slots.js";
 
 /** A physical key, identified by the device it belongs to and where it sits. */
@@ -24,14 +25,21 @@ export type DeviceEvent =
   | { kind: "herdr-snapshot"; snapshot: HerdrSnapshot }
   /** A `worktree.list` reply, which is the only place a branch is reported. */
   | { kind: "herdr-worktrees"; worktrees: WorktreeEntry[] }
+  /** A `pane.process_info` reply. Null when nothing identifiable is running. */
+  | { kind: "herdr-process-info"; paneId: string; process: PaneProcess | null }
   /** `at` is stamped by the adapter so the reducer needs no clock of its own. */
   | { kind: "herdr-event"; event: HerdrEvent; at: number }
   | { kind: "theme-changed"; theme: ResolvedThemeSnapshot | null }
-  /** Slot assignments read back from storage when the plugin starts. */
-  | { kind: "settings-loaded"; slots: Slots }
+  /** Geography and role corrections read back from storage when the plugin starts. */
+  | { kind: "settings-loaded"; slots: Slots; roles: RoleOverrides }
   /** `at` is stamped by the adapter, so a hold can be told from a tap. */
   | { kind: "key-down"; key: KeyAddress; at: number }
   | { kind: "key-up"; key: KeyAddress; at: number }
+  /**
+   * The touch strip pressed. The SDK reports whether it was held, so this needs
+   * no timer of its own — unlike a key, which only reports down and up.
+   */
+  | { kind: "encoder-touch"; deviceId: string; encoder: number; hold: boolean }
   | { kind: "encoder-rotate"; deviceId: string; encoder: number; ticks: number }
   | { kind: "encoder-down"; deviceId: string; encoder: number }
   | { kind: "encoder-up"; deviceId: string; encoder: number }
@@ -53,4 +61,12 @@ export type Command =
    * which dies with its workspace (ADR-0009).
    */
   | { kind: "save-slots"; slots: Slots }
+  /**
+   * Read what is running in one pane, to work out what the pane is for. One
+   * request per pane: `pane.process_info` answers for a single pane, and null
+   * means the focused one rather than all of them.
+   */
+  | { kind: "load-process-info"; paneId: string }
+  /** Persist role corrections, which outlive the panes they were made on. */
+  | { kind: "save-roles"; roles: RoleOverrides }
   | { kind: "herdr-request"; method: string; params: Record<string, unknown> };

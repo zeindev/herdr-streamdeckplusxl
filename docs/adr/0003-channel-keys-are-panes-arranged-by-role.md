@@ -23,17 +23,20 @@ A pane's role is auto-suggested from `pane.process_info`, which returns each for
 - Three role rows means tests, logs, and shell share one row, so their relative order within that row is a convention that must be fixed rather than incidental.
 - A workstream with more than three panes of one role needs an overflow rule.
 
-## Staged deviation, in force while ticket `-3rd` is the newest work
+## What building it corrected (ticket `-4bb`)
 
-The channel's **top row still holds a two-key workstream header** — its label and its aggregate agent state — instead of panes. This contradicts the decision above and is temporary.
+The staged deviation recorded here is over: the header row is gone and all three role rows are panes. Workstream identity lives on the strip, as this decision always intended, and the slot-reassignment hold moved with it — the touch strip reports `hold` and `tapPos` itself, so that gesture needs no timer of its own.
 
-The reason is ordering, not disagreement. This ADR puts identity on the strip regions, but the strip belonged to ticket `-2gn`, which had not run when the channels were first made readable in `-3rd`. Something had to carry identity for a channel to be a channel at all, so it went on keys, at a fixed row, marked as staged in the code (`HEADER_ROW` in `src/device/geometry.ts`).
+Three claims above were wrong about `pane.process_info`, and each was found by calling it on a running Herdr rather than reading the schema. Two of them would have broken detection on the case that matters most.
 
-**`-2gn` has since shrunk it.** The branch moved to the strip, where it is permanently visible and has room not to be cut into ambiguity, and its key was dropped — so the header is two keys wide, not three, and each channel already has one more key free than it did. What did **not** move is the label, the repository, and the aggregate state, and the reason is the pixel budget rather than reluctance: the strip's 400px holds two lines, and the branch plus attention plus the reserved ticket and pull-request fields already fill them (ADR-0007).
+1. **`name` is not the program's name.** This decision says process info returns "`name`, `argv`, `cmdline`, and `cwd` — enough to recognise `claude`". The live agent pane reported `{ name: "2.1.233", argv0: "claude", cmdline: "claude" }`: `name` is Claude's *version*, because it rewrites its own process title. Detection matches on `argv0` and `cmdline`, and an override is keyed on the command line — keying on `name` would have tied every correction to a release.
+2. **The first foreground process is the wrong one.** The same pane listed an MCP server the agent had spawned *before* the agent itself. `foreground_process_group_id` is what says which entry identifies the pane; taking the first would have called that channel's agent row an ebook indexer.
+3. **It is one request per pane**, since the call takes a single `pane_id` and null means the focused pane. So only panes that need it are asked: Herdr detects agents itself and says so on the pushed snapshot, which makes the agent row both free and more reliable than any pattern could be.
 
-Two things must therefore happen together before the row can return to panes, and `-4bb` owns both:
+A fourth finding is about naming rather than detection. `terminal_title_stripped` is the most descriptive field Herdr offers and is unusable as a key label: an agent rewrites its title as it works, so the key would be renamed and redrawn every few seconds. A pane is named by the developer's own label, then by the agent or program running in it, then by its directory.
 
-1. Somewhere else has to carry a workstream's label and state. The channel's own control row (ADR-0011) is the obvious home.
-2. `-77f` anchors the slot-reassignment hold to this row's first key (`heldLongEnough` in `src/device/state.ts`). That gesture needs a new home first. The strip is a good one and needs no timer: the SDK's `touchTap` carries `hold` and `tapPos` directly, confirmed in `node_modules/@elgato/streamdeck/dist/api/events/encoder.d.ts`.
+## Consequences settled here
 
-Until then a channel has **two** role rows and one spare key, not three rows.
+- A pane with no agent shows **no** state. Herdr reports `unknown` for every one of them, so drawing that would mark every service in every channel with an outline that says nothing.
+- More panes of one role than its row has keys is answered by a count on the row's last key, which covers the pane it displaced as well as the extras. Nothing is ever silently absent.
+- Correcting a role is a hold on the pane's key, matching the hold that reassigns a channel: a tap acts on what a control shows, a hold changes what it means.

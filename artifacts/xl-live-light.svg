@@ -2,60 +2,80 @@
   <rect width="1436" height="774" fill="#141414"/>
   <svg x="14" y="14" width="144" height="144" viewBox="0 0 144 144">
     <rect width="144" height="144" fill="#000000"/>
-    
-    <text x="72" y="64" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(113 115 136)" text-anchor="middle">auth</text><text x="72" y="93" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(113 115 136)" text-anchor="middle">rewrite</text>
-    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">HERDR-STREA…</text>
-  </svg>
-  <svg x="172" y="14" width="144" height="144" viewBox="0 0 144 144">
-    <rect width="144" height="144" fill="#000000"/>
     <rect x="4" y="4" width="136" height="136" rx="18" fill="none" stroke="rgb(223 142 29)" stroke-width="5"/>
-    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(113 115 136)" text-anchor="middle">BLOCKED</text>
-    
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(113 115 136)" text-anchor="middle">claude</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">AGENT</text>
   </svg>
+  <svg x="172" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="330" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="488" y="14" width="144" height="144" viewBox="0 0 144 144">
     <rect width="144" height="144" fill="#000000"/>
-    
-    <text x="72" y="64" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(113 115 136)" text-anchor="middle">billing</text><text x="72" y="93" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(113 115 136)" text-anchor="middle">api</text>
-    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">HERDR-STREA…</text>
-  </svg>
-  <svg x="646" y="14" width="144" height="144" viewBox="0 0 144 144">
-    <rect width="144" height="144" fill="#000000"/>
     <rect x="4" y="4" width="136" height="136" rx="18" fill="none" stroke="rgb(37 107 245)" stroke-width="5"/>
-    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="25.5" fill="rgb(113 115 136)" text-anchor="middle">WORKING</text>
-    
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(113 115 136)" text-anchor="middle">claude</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">AGENT</text>
   </svg>
+  <svg x="646" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="804" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="962" y="14" width="144" height="144" viewBox="0 0 144 144">
     <rect width="144" height="144" fill="#000000"/>
-    
-    <text x="72" y="64" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(113 115 136)" text-anchor="middle">search</text><text x="72" y="93" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(113 115 136)" text-anchor="middle">perf</text>
-    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">HERDR-STREA…</text>
-  </svg>
-  <svg x="1120" y="14" width="144" height="144" viewBox="0 0 144 144">
-    <rect width="144" height="144" fill="#000000"/>
     <rect x="4" y="4" width="136" height="136" rx="18" fill="none" stroke="rgb(64 160 43)" stroke-width="7"/>
-    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="30" fill="rgb(113 115 136)" text-anchor="middle">DONE</text>
-    
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(113 115 136)" text-anchor="middle">claude</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">AGENT</text>
   </svg>
+  <svg x="1120" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="1278" y="14" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
-  <svg x="14" y="172" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
+  <svg x="14" y="172" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="31.5" fill="rgb(113 115 136)" text-anchor="middle">npm</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">SERVER</text>
+  </svg>
   <svg x="172" y="172" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="330" y="172" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
-  <svg x="488" y="172" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
+  <svg x="488" y="172" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="30" fill="rgb(113 115 136)" text-anchor="middle">next</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">SERVER</text>
+  </svg>
   <svg x="646" y="172" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="804" y="172" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="962" y="172" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="1120" y="172" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="1278" y="172" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
-  <svg x="14" y="330" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
-  <svg x="172" y="330" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
+  <svg x="14" y="330" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="27" fill="rgb(113 115 136)" text-anchor="middle">vitest</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">TESTS</text>
+  </svg>
+  <svg x="172" y="330" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="31.5" fill="rgb(113 115 136)" text-anchor="middle">zsh</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">SHELL</text>
+  </svg>
   <svg x="330" y="330" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
-  <svg x="488" y="330" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
+  <svg x="488" y="330" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="30" fill="rgb(113 115 136)" text-anchor="middle">tail</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">LOGS</text>
+  </svg>
   <svg x="646" y="330" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="804" y="330" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
-  <svg x="962" y="330" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
-  <svg x="1120" y="330" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
+  <svg x="962" y="330" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="28.5" fill="rgb(113 115 136)" text-anchor="middle">cargo</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">TESTS</text>
+  </svg>
+  <svg x="1120" y="330" width="144" height="144" viewBox="0 0 144 144">
+    <rect width="144" height="144" fill="#000000"/>
+    
+    <text x="72" y="84" font-family="Consolas" font-weight="700" font-size="31.5" fill="rgb(113 115 136)" text-anchor="middle">zsh</text>
+    <text x="72" y="130" font-family="Consolas" font-weight="700" font-size="18" fill="rgb(113 116 137)" text-anchor="middle" letter-spacing=".1">SHELL</text>
+  </svg>
   <svg x="1278" y="330" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="14" y="488" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>
   <svg x="172" y="488" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>

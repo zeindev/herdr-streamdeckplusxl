@@ -23,10 +23,13 @@ function keyView(face: KeyFace): Parameters<typeof keySvg>[0] {
       // ADR-0009 wants an empty slot to invite a worktree, so it is worded as
       // well as drawn — the plus glyph alone says nothing.
       return { label: "", empty: true, slot: face.slot, detail: "NEW WORKTREE" };
-    case "status":
-      // The status word is the label, so the outline colour restates the reading
-      // rather than being the only way to get it.
-      return { label: face.label, status: face.status };
+    case "pane":
+      // The role is the footer and the status drives the outline, so a pane says
+      // what it is and how it is doing without relying on colour alone.
+      return { label: face.label, detail: face.role.toUpperCase(), ...(face.status ? { status: face.status } : {}) };
+    case "more":
+      // A count of what the row had no key for, named so the number is not bare.
+      return { label: "MORE", count: face.count };
     case "text":
       return { label: face.label, detail: face.detail };
   }

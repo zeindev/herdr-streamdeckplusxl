@@ -1,8 +1,10 @@
 import type { HerdrEvent } from "../herdr/protocol.js";
-import type { HerdrSnapshot, PaneSnapshot, ResolvedThemeSnapshot, WorktreeEntry } from "../model.js";
+import type { HerdrSnapshot, PaneProcess, PaneSnapshot, ResolvedThemeSnapshot, WorktreeEntry } from "../model.js";
 import { sameKey, type Command, type DeviceEvent, type DeviceInfo, type KeyAddress } from "./events.js";
-import { HEADER_ROW, IDENTITY_COLUMN, channelOfColumn, columnInChannel, layoutForDeviceType } from "./geometry.js";
-import { bind, cycle, emptySlots, forgetAbsent, sameSlots, type Slots } from "./slots.js";
+import { channelOfColumn, columnInChannel, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
+import { channelRows, type PaneCell } from "./panes.js";
+import { commandKeyOf, nextRole, roleResolver, type PaneProcesses, type RoleOverrides } from "./role.js";
+import { bind, channelWorkstreams, cycle, emptySlots, forgetAbsent, sameSlots, type Slots } from "./slots.js";
 import { oneWorkspacePerRepository, workstreamsOf, type Branches } from "./workstream.js";
 
 /**
@@ -13,15 +15,14 @@ import { oneWorkspacePerRepository, workstreamsOf, type Branches } from "./works
 export const RESYNC_DEBOUNCE_MS = 120;
 
 /**
- * How long a channel's identity key must be held to change what that channel
- * means.
+ * How long a key must be held for the hold to mean something rather than the tap.
  *
- * ADR-0009 asks that reassigning a slot be disruptive by design and carry
- * friction, because a channel that changes meaning costs the developer the
- * spatial memory the whole layout is built on. A hold cannot happen by brushing
- * a key, which a tap can.
+ * One threshold for the whole device: a tap acts on what a control shows, a hold
+ * changes what it means. ADR-0009 asks that reassigning a slot carry friction,
+ * and the same reasoning covers correcting a pane's role — both change what a
+ * position means, and neither may happen by brushing a key.
  */
-export const SLOT_HOLD_MS = 1200;
+export const HOLD_MS = 1200;
 
 /**
  * `offline` — no connection. `syncing` — connected, but the snapshot has not
@@ -41,8 +42,12 @@ export type State = {
    * a snapshot re-read must not drop a branch that has not changed.
    */
   branches: Branches;
-  /** Which channel belongs to which workstream, and the only durable state. */
+  /** Which channel belongs to which workstream. Durable. */
   slots: Slots;
+  /** What Herdr says is running in each pane, so a role can be worked out. */
+  processes: PaneProcesses;
+  /** Roles the developer corrected, keyed by command line. Durable. */
+  roles: RoleOverrides;
   /** Keys currently held, with when the hold began. */
   pressed: PressedKey[];
   /** When a structural change was first seen, or null when nothing is pending. */
@@ -62,6 +67,8 @@ export function initialState(): State {
     devices: [],
     branches: {},
     slots: emptySlots(),
+    processes: {},
+    roles: {},
     pressed: [],
     resyncRequestedAt: null
   };
@@ -125,6 +132,8 @@ export function reduce(state: State, event: DeviceEvent): Step {
           // Branches of checkouts that are gone would otherwise accumulate for
           // as long as the plugin runs.
           branches: keepKnownCheckouts(state.branches, snapshot),
+          // A pane that is gone can never be asked about again.
+          processes: keepKnownPanes(state.processes, snapshot),
           slots,
           resyncRequestedAt: null
         },
@@ -134,6 +143,10 @@ export function reduce(state: State, event: DeviceEvent): Step {
           ...oneWorkspacePerRepository(workstreams).map((workspaceId) => ({
             kind: "load-worktrees" as const,
             workspaceId
+          })),
+          ...unknownPanes(state.processes, snapshot).map((paneId) => ({
+            kind: "load-process-info" as const,
+            paneId
           })),
           ...savedIfChanged(state.slots, slots)
         ]
@@ -145,10 +158,15 @@ export function reduce(state: State, event: DeviceEvent): Step {
       // not mention takes a free channel on the next snapshot.
       const slots = bind(event.slots, workstreamsOf(state.snapshot, state.branches));
       return {
-        state: { ...state, slots },
+        state: { ...state, slots, roles: event.roles },
         // Only a binding this load actually added is worth writing back.
         commands: savedIfChanged(event.slots, slots)
       };
+    }
+
+    case "herdr-process-info": {
+      if (state.processes[event.paneId] === event.process) return { state, commands: [] };
+      return { state: { ...state, processes: { ...state.processes, [event.paneId]: event.process } }, commands: [] };
     }
 
     case "herdr-worktrees": {
@@ -163,7 +181,7 @@ export function reduce(state: State, event: DeviceEvent): Step {
       // A hold and a due resync are independent, so one firing must never delay
       // the other by a whole beat.
       const held = heldLongEnough(state, event.at);
-      const hold = held ? applySlotHold(state, held) : { state, commands: [] };
+      const hold = held ? applyHold(state, held) : { state, commands: [] };
       const resync = dueResync(hold.state, event.at);
       return { state: resync.state, commands: [...hold.commands, ...resync.commands] };
     }
@@ -195,17 +213,33 @@ export function reduce(state: State, event: DeviceEvent): Step {
 
     case "key-up": {
       if (!state.pressed.some((held) => sameKey(held.key, event.key))) return { state, commands: [] };
-      return {
-        state: { ...state, pressed: state.pressed.filter((held) => !sameKey(held.key, event.key)) },
-        commands: []
-      };
+      const pressed = state.pressed.filter((held) => !sameKey(held.key, event.key));
+      // A hold has already fired and taken its press with it, so anything still
+      // held here was a tap. A tap on a pane focuses it in Herdr.
+      const cell = cellAt(state, event.key);
+      const commands: Command[] =
+        cell?.kind === "pane"
+          ? [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: cell.pane.pane_id } }]
+          : [];
+      return { state: { ...state, pressed }, commands };
+    }
+
+    case "encoder-touch": {
+      // Holding a channel's strip is what reassigns it. It moved here from the
+      // channel's first key when the panes took that row, and the strip suits it
+      // better: the SDK reports the hold itself, so no timer is needed.
+      if (!event.hold) return { state, commands: [] };
+      const layout = layoutOf(state, event.deviceId);
+      if (!layout) return { state, commands: [] };
+      const slots = cycle(state.slots, Math.floor(event.encoder / layout.encodersPerChannel), presentWorkstreams(state));
+      return { state: { ...state, slots }, commands: savedIfChanged(state.slots, slots) };
     }
 
     case "encoder-rotate":
     case "encoder-down":
     case "encoder-up":
       // Accepted so the input path is proven end to end; nothing is bound to an
-      // encoder until the channels exist.
+      // encoder until the dials get their verbs.
       return { state, commands: [] };
   }
 }
@@ -239,39 +273,79 @@ function savedIfChanged(before: Slots, after: Slots): Command[] {
   return sameSlots(before, after) ? [] : [{ kind: "save-slots", slots: after }];
 }
 
-/**
- * A channel's identity key held past the friction threshold, if any.
- *
- * Only that one key per channel changes what the channel means. Every other key
- * is a pane or a control and belongs to another ticket, so a long press
- * elsewhere does nothing rather than doing something surprising.
- */
-function heldLongEnough(state: State, at: number): { held: PressedKey; slot: number } | null {
-  for (const held of state.pressed) {
-    if (at - held.at < SLOT_HOLD_MS) continue;
-    const device = state.devices.find((candidate) => candidate.id === held.key.deviceId);
-    const layout = device && layoutForDeviceType(device.type);
-    if (!layout) continue;
-    if (held.key.row !== HEADER_ROW || columnInChannel(layout, held.key.column) !== IDENTITY_COLUMN) continue;
-    return { held, slot: channelOfColumn(layout, held.key.column) };
-  }
-  return null;
+/** The first key held past the friction threshold, if any. */
+function heldLongEnough(state: State, at: number): PressedKey | null {
+  return state.pressed.find((held) => at - held.at >= HOLD_MS) ?? null;
 }
 
 /**
- * What holding a channel's identity key does: move that channel on to the next
- * thing it could show. Holding a channel that holds a workstream lets it go;
- * holding an empty one takes in the first workstream waiting, and holding again
- * offers the next. That is the deliberate act ADR-0009 asks for, and it is one
- * gesture rather than a vocabulary.
+ * What holding a pane key does: correct what the device thinks that pane is for,
+ * one role at a time, wrapping.
+ *
+ * The correction is remembered against the pane's command line rather than the
+ * pane, so it outlives the pane being restarted — a dev server that crashed and
+ * came back is the same job in a new pane. A pane whose command line is not
+ * known yet cannot be corrected, because there would be nothing to remember it
+ * by, and a correction that quietly forgot itself would be worse than none.
  *
  * The hold is spent whether or not it changed anything, so it fires once rather
  * than on every tick while the key stays down.
  */
-function applySlotHold(state: State, { held, slot }: { held: PressedKey; slot: number }): Step {
+function applyHold(state: State, held: PressedKey): Step {
   const spent = { ...state, pressed: state.pressed.filter((candidate) => candidate !== held) };
-  const slots = cycle(state.slots, slot, workstreamsOf(state.snapshot, state.branches));
-  return { state: { ...spent, slots }, commands: savedIfChanged(state.slots, slots) };
+  const cell = cellAt(state, held.key);
+  if (cell?.kind !== "pane") return { state: spent, commands: [] };
+
+  const key = commandKeyOf(state.processes[cell.pane.pane_id] ?? undefined);
+  if (!key) return { state: spent, commands: [] };
+
+  const roles = { ...state.roles, [key]: nextRole(cell.role) };
+  return { state: { ...spent, roles }, commands: [{ kind: "save-roles", roles }] };
+}
+
+/** The layout of an attached device, or null when it is not one we drive. */
+function layoutOf(state: State, deviceId: string): DeviceLayout | null {
+  const device = state.devices.find((candidate) => candidate.id === deviceId);
+  return device ? layoutForDeviceType(device.type) : null;
+}
+
+/** Workstreams Herdr currently holds, in the order channels take them. */
+function presentWorkstreams(state: State) {
+  return workstreamsOf(state.snapshot, state.branches);
+}
+
+/**
+ * What sits on one key, which is what a press acts on.
+ *
+ * Derived the same way the projection derives it, from the same inputs, so a
+ * press can never act on something other than what the developer is looking at.
+ */
+function cellAt(state: State, key: KeyAddress): PaneCell | null {
+  const layout = layoutOf(state, key.deviceId);
+  if (!layout) return null;
+  const rows = channelRows(
+    channelWorkstreams(state.slots, presentWorkstreams(state))[channelOfColumn(layout, key.column)] ?? null,
+    state.snapshot?.panes ?? [],
+    roleResolver(state.processes, state.roles),
+    layout.columnsPerChannel
+  );
+  return rows[key.row]?.[columnInChannel(layout, key.column)] ?? null;
+}
+
+/** Panes Herdr has not been asked about yet, and which need asking about. */
+function unknownPanes(processes: PaneProcesses, snapshot: HerdrSnapshot): string[] {
+  // An agent pane needs no lookup: Herdr detects agents itself and says so on
+  // the snapshot, which is both cheaper and more reliable than any pattern.
+  return snapshot.panes
+    .filter((pane) => !pane.agent && !(pane.pane_id in processes))
+    .map((pane) => pane.pane_id);
+}
+
+/** Drops what was learned about panes that no longer exist. */
+function keepKnownPanes(processes: PaneProcesses, snapshot: HerdrSnapshot): PaneProcesses {
+  const live = new Set(snapshot.panes.map((pane) => pane.pane_id));
+  const kept = Object.entries(processes).filter(([paneId]) => live.has(paneId));
+  return kept.length === Object.keys(processes).length ? processes : Object.fromEntries(kept);
 }
 
 /** Every checkout path the snapshot's workspaces currently occupy. */

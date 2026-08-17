@@ -76,6 +76,35 @@ export type WorkspaceSnapshot = {
   worktree?: WorkspaceWorktreeSnapshot | null;
 };
 
+/**
+ * One foreground process in a pane, from a `pane.process_info` reply.
+ *
+ * `name` is present and deliberately unused: a live capture showed Claude
+ * reporting its `name` as its version string, `2.1.233`, because it rewrites its
+ * own process title. `argv0` and `cmdline` are what identify a program.
+ */
+export type PaneProcess = {
+  pid: number;
+  name: string;
+  argv0?: string | null;
+  argv?: string[] | null;
+  cmdline?: string | null;
+  cwd?: string | null;
+};
+
+/**
+ * What is running in one pane.
+ *
+ * `foreground_processes` lists children before the process that spawned them, so
+ * `foreground_process_group_id` is what says which entry identifies the pane.
+ */
+export type PaneProcessInfo = {
+  pane_id: string;
+  shell_pid?: number | null;
+  foreground_process_group_id?: number | null;
+  foreground_processes?: PaneProcess[];
+};
+
 /** One entry of a `worktree.list` reply: the only place a branch is reported. */
 export type WorktreeEntry = {
   path: string;
@@ -134,6 +163,17 @@ export function worktreesFromResult(result: Record<string, unknown>): WorktreeEn
   return worktrees.filter(
     (entry): entry is WorktreeEntry => Boolean(entry) && typeof (entry as WorktreeEntry).path === "string"
   );
+}
+
+/**
+ * Reads the process information out of a `pane.process_info` result. Returns
+ * undefined rather than throwing when the shape is not what this protocol
+ * version expects, so a pane whose role cannot be read still renders.
+ */
+export function processInfoFromResult(result: Record<string, unknown>): PaneProcessInfo | undefined {
+  const info = result.process_info;
+  if (!info || typeof info !== "object" || typeof (info as PaneProcessInfo).pane_id !== "string") return undefined;
+  return info as PaneProcessInfo;
 }
 
 /**

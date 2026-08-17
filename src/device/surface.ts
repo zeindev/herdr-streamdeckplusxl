@@ -1,13 +1,7 @@
 import type { AgentStatus, PaneSnapshot } from "../model.js";
-import {
-  CHANNEL_COUNT,
-  HEADER_ROW,
-  IDENTITY_COLUMN,
-  channelKeyIndex,
-  keyCount,
-  layoutForDeviceType,
-  type DeviceLayout
-} from "./geometry.js";
+import { CHANNEL_COUNT, channelKeyIndex, keyCount, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
+import { channelRows, paneKeyLabel } from "./panes.js";
+import { roleResolver, type PaneProcesses, type Role } from "./role.js";
 import { channelWorkstreams, overflowOf } from "./slots.js";
 import type { State } from "./state.js";
 import { OVERFLOW_CELLS, stripBlockOf, type StripBlock } from "./strip.js";
@@ -24,7 +18,17 @@ import { workstreamsOf, type Workstream } from "./workstream.js";
 export type KeyFace =
   | { kind: "blank" }
   | { kind: "text"; label: string; detail?: string }
-  | { kind: "status"; label: string; status: AgentStatus }
+  /**
+   * A pane, named, with the role that put it on this row and — only when it runs
+   * an agent — that agent's live state.
+   *
+   * A pane with no agent has no state to report: Herdr says `unknown` for every
+   * one of them, and drawing that as a reading would put a marked outline on
+   * every service in every channel while saying nothing at all.
+   */
+  | { kind: "pane"; label: string; role: Role; status?: AgentStatus }
+  /** Panes a row had no key for. A count, never silence. */
+  | { kind: "more"; count: number }
   /** An unassigned channel, which invites a worktree rather than showing nothing. */
   | { kind: "empty"; slot: number };
 
@@ -70,6 +74,8 @@ export function surfaceOf(state: State): Surface {
   const present = workstreamsOf(state.snapshot, state.branches);
   const workstreams = channelWorkstreams(state.slots, present);
   const overflow = overflowOf(state.slots, present).length;
+  const panes = state.snapshot?.panes ?? [];
+  const roleFor = roleResolver(state.processes, state.roles);
   const devices: DeviceSurface[] = [];
   for (const device of state.devices) {
     const layout = layoutForDeviceType(device.type);
@@ -77,58 +83,47 @@ export function surfaceOf(state: State): Surface {
     devices.push({
       deviceId: device.id,
       layout: layout.kind,
-      keys: keysOf(layout, workstreams),
-      encoders: encodersOf(layout, workstreams, state.snapshot?.panes ?? [], overflow, noticeFor(state))
+      keys: keysOf(layout, workstreams, panes, roleFor, state.processes),
+      encoders: encodersOf(layout, workstreams, panes, overflow, noticeFor(state))
     });
   }
   return { devices };
 }
 
-function keysOf(layout: DeviceLayout, workstreams: ReadonlyArray<Workstream | null>): KeyFace[] {
+function keysOf(
+  layout: DeviceLayout,
+  workstreams: ReadonlyArray<Workstream | null>,
+  panes: readonly PaneSnapshot[],
+  roleFor: (pane: PaneSnapshot) => Role,
+  processes: PaneProcesses
+): KeyFace[] {
   const keys = Array.from({ length: keyCount(layout) }, () => BLANK);
   for (let channel = 0; channel < CHANNEL_COUNT; channel++) {
-    const header = headerOf(channel, workstreams[channel] ?? null);
-    for (let column = 0; column < header.length; column++) {
-      keys[channelKeyIndex(layout, channel, column, HEADER_ROW)] = header[column];
+    const workstream = workstreams[channel] ?? null;
+    if (!workstream) {
+      // Nothing to show and something to offer, so the channel's first key asks
+      // for a worktree rather than leaving three columns of unexplained black.
+      keys[channelKeyIndex(layout, channel, 0, 0)] = { kind: "empty", slot: channel };
+      continue;
     }
+    const rows = channelRows(workstream, panes, roleFor, layout.columnsPerChannel);
+    rows.forEach((row, rowIndex) =>
+      row.forEach((cell, column) => {
+        if (cell) keys[channelKeyIndex(layout, channel, column, rowIndex)] = paneFace(cell, processes);
+      })
+    );
   }
   return keys;
 }
 
-/**
- * A channel's header: who it is, and how it is doing.
- *
- * The branch used to sit between them and now lives on the strip, where it is
- * permanently visible and has room not to be truncated into ambiguity. What
- * stays on keys is what the strip has no room for — the 400px budget holds the
- * branch and the readings, not a label and a repository as well (ADR-0007).
- */
-function headerOf(channel: number, workstream: Workstream | null): KeyFace[] {
-  if (!workstream) return atIdentity({ kind: "empty", slot: channel });
-  // The label leads and the repository follows: a monorepo hosts several
-  // workstreams at once, so the repository name alone can name all three
-  // channels identically while the label is what the developer chose.
-  const repository = workstream.worktree?.repoName;
-  return atIdentity(
-    detail(workstream.label, repository === workstream.label ? undefined : repository),
-    stateFace(workstream.agentStatus)
-  );
-}
-
-/** Lays faces out from the identity column rightwards, blanking the rest. */
-function atIdentity(...faces: KeyFace[]): KeyFace[] {
-  const header = Array.from({ length: faces.length + IDENTITY_COLUMN }, () => BLANK);
-  faces.forEach((face, offset) => (header[IDENTITY_COLUMN + offset] = face));
-  return header;
-}
-
-function detail(label: string, context: string | undefined): KeyFace {
-  return context ? { kind: "text", label, detail: context } : { kind: "text", label };
-}
-
-/** No agent is a reading of its own, not an unknown one. */
-function stateFace(status: AgentStatus | undefined): KeyFace {
-  return status ? { kind: "status", label: status.toUpperCase(), status } : { kind: "text", label: "NO AGENT" };
+function paneFace(
+  cell: NonNullable<ReturnType<typeof channelRows>[number][number]>,
+  processes: PaneProcesses
+): KeyFace {
+  if (cell.kind === "more") return { kind: "more", count: cell.count };
+  const label = paneKeyLabel(cell.pane, processes[cell.pane.pane_id] ?? undefined, cell.role);
+  if (!cell.pane.agent) return { kind: "pane", label, role: cell.role };
+  return { kind: "pane", label, role: cell.role, status: cell.pane.agent_status };
 }
 
 /**

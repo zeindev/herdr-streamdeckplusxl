@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { RESYNC_DEBOUNCE_MS, SLOT_HOLD_MS, initialState, reduce } from "../../.preview/device/state.js";
+import { HOLD_MS, RESYNC_DEBOUNCE_MS, initialState, reduce } from "../../.preview/device/state.js";
 import { overflowOf, readSlots } from "../../.preview/device/slots.js";
+import { roleResolver } from "../../.preview/device/role.js";
 import { DEVICE_TYPE_XL } from "../../.preview/device/geometry.js";
 import { workstreamsOf } from "../../.preview/device/workstream.js";
 import { recordedEvents, recordedWorkspace, recordedWorktree } from "../herdr/fixtures/recorded.mjs";
@@ -419,17 +420,17 @@ function workspaceOn(number, label) {
   };
 }
 
-const identityKey = (channel) => ({ deviceId: "xl-1", column: channel * 3, row: 0 });
+/** Holding a channel's strip is what reassigns it, since the panes took the keys. */
+function hold(state, channel) {
+  return run([{ kind: "encoder-touch", deviceId: "xl-1", encoder: channel * 2, hold: true }], state);
+}
 
 function liveWith(workspaces, from) {
   return run([{ kind: "herdr-connection", connected: true }, snapshotOf({ workspaces })], from);
 }
 
-/** Holds a channel's identity key past the friction threshold and lets go. */
-function hold(state, channel, at = 10_000) {
-  const down = run([{ kind: "key-down", key: identityKey(channel), at }], state);
-  const fired = run([{ kind: "tick", at: at + SLOT_HOLD_MS }], down.state);
-  return { ...fired, state: run([{ kind: "key-up", key: identityKey(channel), at: at + SLOT_HOLD_MS + 1 }], fired.state).state };
+function liveWith2(workspaces, panes) {
+  return run([xl, { kind: "herdr-connection", connected: true }, snapshotOf({ workspaces, panes })]);
 }
 
 test("a workstream is given a channel and the assignment is persisted", () => {
@@ -451,7 +452,7 @@ test("a workstream keeps its channel when an earlier one closes", () => {
 });
 
 test("assignments read back from settings put the channels where they were", () => {
-  const stored = { kind: "settings-loaded", slots: readSlots({ slots: [null, "checkout:/w/billing", "checkout:/w/auth"] }) };
+  const stored = { kind: "settings-loaded", roles: {}, slots: readSlots({ slots: [null, "checkout:/w/billing", "checkout:/w/auth"] }) };
   const restored = run([xl, stored]);
   assert.deepEqual(restored.state.slots.bindings, [null, "checkout:/w/billing", "checkout:/w/auth"]);
 
@@ -463,7 +464,7 @@ test("assignments read back from settings put the channels where they were", () 
 });
 
 test("a workstream the stored settings never mentioned takes a free channel", () => {
-  const restored = run([xl, { kind: "settings-loaded", slots: readSlots({ slots: [null, "checkout:/w/billing", null] }) }]);
+  const restored = run([xl, { kind: "settings-loaded", roles: {}, slots: readSlots({ slots: [null, "checkout:/w/billing", null] }) }]);
   const live = liveWith([workspaceOn(1, "auth"), workspaceOn(2, "billing")], restored.state);
 
   assert.deepEqual(live.state.slots.bindings, ["checkout:/w/auth", "checkout:/w/billing", null]);
@@ -490,22 +491,15 @@ test("overflow clears live as a workstream closes", () => {
   assert.equal(roomy.state.slots.bindings[0], "checkout:/w/d", "the freed channel absorbs the workstream that was waiting");
 });
 
-test("a tap on a channel changes nothing, because reassigning must be deliberate", () => {
+test("a tap on a channel's strip changes nothing, because reassigning must be deliberate", () => {
   const live = liveWith([workspaceOn(1, "auth")], run([xl]).state);
-  const tapped = run(
-    [
-      { kind: "key-down", key: identityKey(0), at: 1000 },
-      { kind: "tick", at: 1000 + SLOT_HOLD_MS - 1 },
-      { kind: "key-up", key: identityKey(0), at: 1000 + SLOT_HOLD_MS - 1 }
-    ],
-    live.state
-  );
+  const tapped = run([{ kind: "encoder-touch", deviceId: "xl-1", encoder: 0, hold: false }], live.state);
 
   assert.deepEqual(tapped.state.slots.bindings, live.state.slots.bindings);
   assert.deepEqual(tapped.commands, []);
 });
 
-test("holding a bound channel lets its workstream go, and says so in storage", () => {
+test("holding a bound channel's strip lets its workstream go, and says so in storage", () => {
   const live = liveWith([workspaceOn(1, "auth"), workspaceOn(2, "billing")], run([xl]).state);
   const released = hold(live.state, 0);
 
@@ -528,7 +522,7 @@ test("a released workstream is not handed straight back by the next snapshot", (
 test("holding an empty channel takes in the workstream that was waiting", () => {
   const live = liveWith([workspaceOn(1, "auth"), workspaceOn(2, "billing")], run([xl]).state);
   const released = hold(live.state, 0);
-  const adopted = hold(released.state, 2, 20_000);
+  const adopted = hold(released.state, 2);
 
   assert.deepEqual(adopted.state.slots.bindings, [null, "checkout:/w/billing", "checkout:/w/auth"]);
   assert.equal(overflowOf(adopted.state.slots, workstreamsOf(adopted.state.snapshot)).length, 0);
@@ -553,29 +547,12 @@ test("holding an empty channel with nothing waiting does nothing", () => {
   assert.deepEqual(held.commands, []);
 });
 
-test("a hold fires once, however long the key stays down", () => {
+test("holding a key never reassigns a channel, since that gesture lives on the strip", () => {
   const live = liveWith([workspaceOn(1, "auth"), workspaceOn(2, "billing")], run([xl]).state);
-  const down = run([{ kind: "key-down", key: identityKey(0), at: 1000 }], live.state);
-  const many = run(
-    Array.from({ length: 5 }, (_, index) => ({ kind: "tick", at: 1000 + SLOT_HOLD_MS + index * 100 })),
-    down.state
-  );
-
-  assert.equal(many.commands.filter((command) => command.kind === "save-slots").length, 1);
-  assert.deepEqual(many.state.slots.bindings, [null, "checkout:/w/billing", null], "channel 1 was not released as well");
-});
-
-test("holding a key that is not a channel identity does nothing", () => {
-  const live = liveWith([workspaceOn(1, "auth")], run([xl]).state);
-  // A pane key and a control-row key both belong to other tickets; a long press
-  // on either must not quietly change what a channel means.
-  for (const key of [{ deviceId: "xl-1", column: 1, row: 0 }, { deviceId: "xl-1", column: 0, row: 3 }]) {
-    const held = run(
-      [{ kind: "key-down", key, at: 1000 }, { kind: "tick", at: 1000 + SLOT_HOLD_MS }],
-      live.state
-    );
+  for (const key of [{ deviceId: "xl-1", column: 0, row: 0 }, { deviceId: "xl-1", column: 0, row: 3 }]) {
+    const held = run([{ kind: "key-down", key, at: 1000 }, { kind: "tick", at: 1000 + HOLD_MS }], live.state);
     assert.deepEqual(held.state.slots.bindings, live.state.slots.bindings);
-    assert.deepEqual(held.commands, []);
+    assert.deepEqual(held.commands.filter((command) => command.kind === "save-slots"), []);
   }
 });
 
@@ -584,6 +561,130 @@ test("a workspace with no worktree occupies a channel like any other", () => {
   const { state } = liveWith([primary, workspaceOn(2, "auth")], run([xl]).state);
 
   assert.deepEqual(state.slots.bindings, ["workspace:w1", "checkout:/w/auth", null]);
+});
+
+const paneOn = (workspaceId, id, overrides = {}) => ({
+  pane_id: `${workspaceId}:${id}`,
+  workspace_id: workspaceId,
+  agent_status: "unknown",
+  ...overrides
+});
+
+const shellProcess = { pid: 1, name: "zsh", argv0: "zsh", cmdline: "-zsh" };
+const testProcess = { pid: 2, name: "node", argv0: "vitest", cmdline: "vitest --watch" };
+
+/** The key at a channel's row and column, as the SDK addresses it. */
+const keyAt = (channel, column, row) => ({ deviceId: "xl-1", column: channel * 3 + column, row });
+
+function holdKey(state, key, at = 5000) {
+  const down = run([{ kind: "key-down", key, at }], state);
+  const fired = run([{ kind: "tick", at: at + HOLD_MS }], down.state);
+  return { ...fired, state: run([{ kind: "key-up", key, at: at + HOLD_MS + 1 }], fired.state).state };
+}
+
+test("a snapshot asks what is running in panes it has not seen", () => {
+  const { commands } = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a"), paneOn("w1", "b")]);
+  assert.deepEqual(
+    commands.filter((command) => command.kind === "load-process-info").map((command) => command.paneId),
+    ["w1:a", "w1:b"]
+  );
+});
+
+test("an agent pane is never asked about, because Herdr already said", () => {
+  // Herdr detects agents itself and pushes the answer, so a lookup would be a
+  // request per pane for something already known.
+  const { commands } = liveWith2(
+    [workspaceOn(1, "auth")],
+    [paneOn("w1", "agent", { agent: "claude" }), paneOn("w1", "other")]
+  );
+  assert.deepEqual(
+    commands.filter((command) => command.kind === "load-process-info").map((command) => command.paneId),
+    ["w1:other"]
+  );
+});
+
+test("a pane already asked about is not asked again", () => {
+  const first = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]);
+  const learnt = run([{ kind: "herdr-process-info", paneId: "w1:a", process: shellProcess }], first.state);
+  const again = run([snapshotOf({ workspaces: [workspaceOn(1, "auth")], panes: [paneOn("w1", "a")] })], learnt.state);
+
+  assert.deepEqual(again.commands.filter((command) => command.kind === "load-process-info"), []);
+});
+
+test("what was learned about a pane is forgotten when the pane goes", () => {
+  const learnt = run(
+    [{ kind: "herdr-process-info", paneId: "w1:a", process: shellProcess }],
+    liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state
+  );
+  assert.ok("w1:a" in learnt.state.processes);
+
+  const gone = run([snapshotOf({ workspaces: [workspaceOn(1, "auth")], panes: [] })], learnt.state);
+  assert.deepEqual(gone.state.processes, {});
+});
+
+test("holding a pane key corrects its role, and the correction is persisted", () => {
+  const live = run(
+    [{ kind: "herdr-process-info", paneId: "w1:t", process: testProcess }],
+    liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "t")]).state
+  ).state;
+
+  // vitest is detected as a test watcher, which puts it on the third row.
+  const held = holdKey(live, keyAt(0, 0, 2));
+  assert.deepEqual(held.state.roles, { "vitest --watch": "logs" }, "the next role after tests");
+  assert.deepEqual(held.commands, [{ kind: "save-roles", roles: { "vitest --watch": "logs" } }]);
+});
+
+test("a correction is remembered by command line, so it survives the pane restarting", () => {
+  const corrected = { kind: "settings-loaded", slots: readSlots(undefined), roles: { "vitest --watch": "server" } };
+  const restored = run([xl, corrected]);
+
+  // The same command comes back in a pane with a different id after a restart.
+  const live = run(
+    [
+      { kind: "herdr-connection", connected: true },
+      snapshotOf({ workspaces: [workspaceOn(1, "auth")], panes: [paneOn("w1", "restarted")] }),
+      { kind: "herdr-process-info", paneId: "w1:restarted", process: testProcess }
+    ],
+    restored.state
+  ).state;
+
+  assert.equal(roleResolver(live.processes, live.roles)(live.snapshot.panes[0]), "server");
+});
+
+test("holding a pane nothing is known about corrects nothing, rather than forgetting it later", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "p")]).state;
+  const held = holdKey(live, keyAt(0, 0, 2));
+
+  assert.deepEqual(held.state.roles, {}, "there is no command line to remember it by");
+  assert.deepEqual(held.commands, []);
+});
+
+test("tapping a pane key focuses that pane in Herdr", () => {
+  const live = run(
+    [{ kind: "herdr-process-info", paneId: "w1:sh", process: shellProcess }],
+    liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "sh")]).state
+  ).state;
+
+  const key = keyAt(0, 0, 2);
+  const { commands } = run([{ kind: "key-down", key, at: 100 }, { kind: "key-up", key, at: 200 }], live);
+  assert.deepEqual(commands, [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: "w1:sh" } }]);
+});
+
+test("a hold on a pane key does not also focus it when the key comes back up", () => {
+  const live = run(
+    [{ kind: "herdr-process-info", paneId: "w1:sh", process: shellProcess }],
+    liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "sh")]).state
+  ).state;
+
+  const held = holdKey(live, keyAt(0, 0, 2));
+  assert.deepEqual(held.commands.filter((command) => command.kind === "herdr-request"), []);
+});
+
+test("tapping an empty key asks Herdr for nothing", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], []).state;
+  const key = keyAt(0, 2, 1);
+  const { commands } = run([{ kind: "key-down", key, at: 100 }, { kind: "key-up", key, at: 200 }], live);
+  assert.deepEqual(commands, []);
 });
 
 test("every recorded event kind can be applied to a live state without throwing", () => {

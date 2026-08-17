@@ -8,18 +8,21 @@ import streamDeck, {
   type KeyAction,
   type KeyDownEvent,
   type KeyUpEvent,
+  type TouchTapEvent,
   type WillAppearEvent,
   type WillDisappearEvent
 } from "@elgato/streamdeck";
+import type { JsonObject } from "@elgato/utils";
 
 import type { Command, DeviceEvent } from "./device/events.js";
 import { keyAddress, layoutForDeviceType, type DeviceLayout } from "./device/geometry.js";
+import { identifyingProcess, readRoles, storedRoles } from "./device/role.js";
 import { readSlots, storedSlots } from "./device/slots.js";
 import { initialState, reduce, type State } from "./device/state.js";
 import { changedControls, surfaceOf, type ControlChange, type EncoderFace, type KeyFace, type Surface } from "./device/surface.js";
 import { encoderImage, keyImage } from "./device/paint.js";
 import { HerdrClient } from "./herdr/client.js";
-import { hasResolvedTheme, snapshotFromResult, worktreesFromResult } from "./model.js";
+import { hasResolvedTheme, processInfoFromResult, snapshotFromResult, worktreesFromResult } from "./model.js";
 import { copiedThemeFromHerdrConfig } from "./theme.js";
 
 /**
@@ -80,11 +83,23 @@ class Adapter {
   private async loadSlots(): Promise<void> {
     try {
       const stored = await streamDeck.settings.getGlobalSettings();
-      this.dispatch({ kind: "settings-loaded", slots: readSlots(stored) });
+      this.dispatch({ kind: "settings-loaded", slots: readSlots(stored), roles: readRoles(stored) });
     } catch (error) {
       // An unreadable setting costs the remembered geography, not the device.
       streamDeck.logger.error(`Could not read slot assignments: ${(error as Error).message}`);
     }
+  }
+
+  /**
+   * Merges into the stored settings rather than replacing them.
+   *
+   * Global settings are one object shared by everything the plugin remembers, so
+   * writing slot assignments with `setGlobalSettings` alone would erase the role
+   * corrections sitting beside them.
+   */
+  private async saveSettings(part: JsonObject): Promise<void> {
+    const stored = await streamDeck.settings.getGlobalSettings();
+    await streamDeck.settings.setGlobalSettings({ ...stored, ...part });
   }
 
   private attach(deviceId: string, type: number): void {
@@ -122,10 +137,20 @@ class Adapter {
         this.dispatch({ kind: "herdr-worktrees", worktrees: worktreesFromResult(result) });
         return;
       }
+      if (command.kind === "load-process-info") {
+        const result = await this.herdr.request("pane.process_info", { pane_id: command.paneId });
+        const process = identifyingProcess(processInfoFromResult(result));
+        this.dispatch({ kind: "herdr-process-info", paneId: command.paneId, process: process ?? null });
+        return;
+      }
+      // Both durable settings live in one global object, so each write has to
+      // carry the other rather than replacing it.
       if (command.kind === "save-slots") {
-        // Global rather than per-action: the assignment belongs to the device as
-        // a whole, and must survive the actions being re-placed on a profile.
-        await streamDeck.settings.setGlobalSettings(storedSlots(command.slots));
+        await this.saveSettings(storedSlots(command.slots));
+        return;
+      }
+      if (command.kind === "save-roles") {
+        await this.saveSettings(storedRoles(command.roles));
         return;
       }
       await this.herdr.request(command.method, command.params);
@@ -267,6 +292,22 @@ class ChannelEncoder extends SingletonAction {
 
   override onWillDisappear(event: WillDisappearEvent): void {
     adapter.forget(event.action.id);
+  }
+
+  /**
+   * The touch strip. Its hold is where slot reassignment lives, having moved off
+   * the keys when the panes took that row; the SDK reports the hold itself, so
+   * this needs no timer of its own.
+   */
+  override onTouchTap(event: TouchTapEvent): void {
+    const index = event.action.coordinates?.column;
+    if (index === undefined) return;
+    adapter.dispatch({
+      kind: "encoder-touch",
+      deviceId: String(event.action.device.id),
+      encoder: index,
+      hold: event.payload.hold
+    });
   }
 
   override onDialRotate(event: DialRotateEvent): void {

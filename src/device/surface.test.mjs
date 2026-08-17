@@ -93,7 +93,7 @@ test("each channel owns three columns and nothing outside them", () => {
   }
 });
 
-test("a channel names its repository, its branch, and how it is doing", () => {
+test("a channel names its workstream and how it is doing; the branch is on the strip", () => {
   const workspace = recordedWorkspace({ workspace_id: "w6", number: 1 });
   const device = surfaceOf(
     liveState({
@@ -103,11 +103,14 @@ test("a channel names its repository, its branch, and how it is doing", () => {
     })
   ).devices[0];
 
-  const [identity, branch, state] = header(device, 0);
+  const [identity, state] = header(device, 0);
   assert.equal(identity.label, "fixture probe", "the label the developer chose leads");
   assert.equal(identity.detail, "herdr-streamdeckplusxl", "the repository follows it");
-  assert.equal(branch.label, "sd-fixture-probe");
   assert.deepEqual(state, { kind: "status", label: "BLOCKED", status: "blocked" });
+
+  // The branch moved to the strip, where it has room not to be cut short.
+  assert.equal(device.encoders[0].block.branch, "sd-fixture-probe");
+  assert.ok(header(device, 0).every((face) => face.kind !== "text" || face.label !== "sd-fixture-probe"));
 });
 
 test("every state carries its word, so colour is never the only reading", () => {
@@ -119,7 +122,7 @@ test("every state carries its word, so colour is never the only reading", () => 
         panes: [{ pane_id: "w6:p1", workspace_id: "w6", agent: "claude", agent_status: status }]
       })
     ).devices[0];
-    assert.deepEqual(header(device, 0)[2], { kind: "status", label: status.toUpperCase(), status });
+    assert.deepEqual(header(device, 0)[1], { kind: "status", label: status.toUpperCase(), status });
   }
 });
 
@@ -129,33 +132,26 @@ test("a workstream with no agent says so rather than reporting unknown", () => {
     liveState({ workspaces: [workspace], panes: [{ pane_id: "w6:p1", workspace_id: "w6", agent_status: "unknown" }] })
   ).devices[0];
 
-  assert.deepEqual(header(device, 0)[2], { kind: "text", label: "NO AGENT" });
+  assert.deepEqual(header(device, 0)[1], { kind: "text", label: "NO AGENT" });
 });
 
 test("a workspace with no worktree is shown and labelled, never dropped", () => {
   const workspace = recordedWorkspace({ workspace_id: "w6", number: 1, worktree: null, label: "primary" });
   const device = surfaceOf(liveState({ workspaces: [workspace] })).devices[0];
 
-  const [identity, branch] = header(device, 0);
-  assert.equal(identity.label, "primary");
-  assert.equal(branch.label, "NO WORKTREE");
+  assert.equal(header(device, 0)[0].label, "primary");
+  assert.equal(device.encoders[0].block.branch, "NO WORKTREE");
 });
 
-test("the three ways a branch can be absent read differently", () => {
+test("the three ways a branch can be absent read differently on the strip", () => {
   const workspace = recordedWorkspace({ workspace_id: "w6", number: 1 });
-  const branchOf = (state) => surfaceOf(state).devices[0];
+  const branchOf = (state) => surfaceOf(state).devices[0].encoders[0].block.branch;
 
   // Not asked yet is not the same as asked and told there is none, and neither
   // is the same as a workspace with no checkout at all.
-  assert.equal(header(branchOf(liveState({ workspaces: [workspace] })), 0)[1].label, "UNKNOWN");
-  assert.equal(
-    header(branchOf(liveState({ workspaces: [workspace], worktrees: [recordedWorktree({ branch: null })] })), 0)[1].label,
-    "DETACHED"
-  );
-  assert.equal(
-    header(branchOf(liveState({ workspaces: [recordedWorkspace({ workspace_id: "w6", number: 1, worktree: null })] })), 0)[1].label,
-    "NO WORKTREE"
-  );
+  assert.equal(branchOf(liveState({ workspaces: [workspace] })), "UNKNOWN");
+  assert.equal(branchOf(liveState({ workspaces: [workspace], worktrees: [recordedWorktree({ branch: null })] })), "DETACHED");
+  assert.equal(branchOf(liveState({ workspaces: [recordedWorkspace({ workspace_id: "w6", number: 1, worktree: null })] })), "NO WORKTREE");
 });
 
 test("everything below the header row is still blank, awaiting panes and controls", () => {
@@ -169,23 +165,74 @@ test("everything below the header row is still blank, awaiting panes and control
   }
 });
 
-test("the strip reports being offline before Herdr answers", () => {
-  const device = surfaceOf(run([attachXl])).devices[0];
-  assert.equal(device.encoders[0].value, "OFFLINE");
+test("the strip says why it is dark rather than showing a branch it cannot vouch for", () => {
+  const offline = surfaceOf(run([attachXl])).devices[0];
+  assert.equal(offline.encoders[0].notice, "HERDR OFFLINE");
+  assert.ok(offline.encoders.every((face) => face.block.branch === null && face.block.fields.length === 0));
+
+  const syncing = surfaceOf(run([attachXl, { kind: "herdr-connection", connected: true }])).devices[0];
+  assert.equal(syncing.encoders[0].notice, "SYNCING");
 });
 
-test("the strip reports syncing between connecting and the snapshot arriving", () => {
-  const device = surfaceOf(run([attachXl, { kind: "herdr-connection", connected: true }])).devices[0];
-  assert.equal(device.encoders[0].value, "SYNCING");
+test("the strip carries no notice once Herdr is live", () => {
+  const device = surfaceOf(liveState({ workspaces: [workspaceOn(1, "auth")] })).devices[0];
+  assert.ok(device.encoders.every((face) => face.notice === null));
 });
 
-test("the strip reports what Herdr actually holds once live", () => {
+test("both regions of a channel carry the same block, because they are one composition", () => {
   const device = surfaceOf(
-    liveState({ workspaces: [{ workspace_id: "w1" }, { workspace_id: "w2" }], panes: [{ pane_id: "a" }, { pane_id: "b" }, { pane_id: "c" }] })
+    liveState({
+      workspaces: [workspaceOn(1, "auth"), workspaceOn(2, "billing")],
+      worktrees: [
+        { path: "/w/auth", branch: "feat/auth" },
+        { path: "/w/billing", branch: "feat/billing" }
+      ]
+    })
   ).devices[0];
-  assert.equal(device.encoders[0].value, "LIVE");
-  assert.match(device.encoders[1].value, /2/, "the workspace count is shown");
-  assert.match(device.encoders[2].value, /3/, "the pane count is shown");
+
+  assert.deepEqual(device.encoders[0].block, device.encoders[1].block);
+  assert.deepEqual(device.encoders[2].block, device.encoders[3].block);
+  assert.notDeepEqual(device.encoders[0].block, device.encoders[2].block, "different channels say different things");
+});
+
+test("every strip reading is named, so no number on the strip is bare", () => {
+  const device = surfaceOf(liveState({ workspaces: [workspaceOn(1, "auth")] })).devices[0];
+  const fields = device.encoders[0].block.fields;
+
+  assert.ok(fields.length > 0);
+  assert.ok(fields.every((field) => field.label.length > 0 && field.value.length > 0));
+});
+
+test("space for ticket and pull-request state is reserved and reads as unknown", () => {
+  const device = surfaceOf(liveState({ workspaces: [workspaceOn(1, "auth")] })).devices[0];
+  const fields = device.encoders[0].block.fields;
+
+  assert.deepEqual(fields.find((field) => field.label === "TKT"), { label: "TKT", value: "?" });
+  assert.deepEqual(fields.find((field) => field.label === "PR"), { label: "PR", value: "?" });
+});
+
+test("the overflow count sits on the rightmost region and nowhere else", () => {
+  const workspaces = [1, 2, 3, 4].map((number) => workspaceOn(number, `stream ${number}`));
+  const device = surfaceOf(liveState({ workspaces })).devices[0];
+
+  assert.equal(device.encoders[5].overflow, 1);
+  assert.ok(device.encoders.slice(0, 5).every((face) => face.overflow === 0));
+});
+
+test("the channel sharing the overflow region gives up room rather than overlapping", () => {
+  const three = [1, 2, 3].map((number) => workspaceOn(number, `stream ${number}`));
+  const roomy = surfaceOf(liveState({ workspaces: three })).devices[0];
+  const crowded = surfaceOf(liveState({ workspaces: [...three, workspaceOn(4, "stream 4")] })).devices[0];
+
+  assert.ok(
+    crowded.encoders[4].block.fields.length < roomy.encoders[4].block.fields.length,
+    "the last channel drops a reading to make room for the count"
+  );
+  assert.deepEqual(
+    crowded.encoders[0].block.fields.length,
+    roomy.encoders[0].block.fields.length,
+    "the other channels are untouched"
+  );
 });
 
 test("the same state projects to an identical surface every time", () => {
@@ -200,15 +247,28 @@ test("nothing is reported as changed between identical surfaces", () => {
 
 test("only the controls that actually differ are reported as changed", () => {
   // This is what keeps the pane_updated flood from redrawing the whole device.
-  const before = liveState({ workspaces: [{ workspace_id: "w1" }], panes: [{ pane_id: "a" }] });
-  const after = liveState({ workspaces: [{ workspace_id: "w1" }], panes: [{ pane_id: "a" }, { pane_id: "b" }] });
+  const workspaces = [workspaceOn(1, "auth"), workspaceOn(2, "billing")];
+  const pane = (status) => [{ pane_id: "w2:p1", workspace_id: "w2", agent: "claude", agent_status: status }];
+  const before = liveState({ workspaces, panes: pane("working") });
+  const after = liveState({ workspaces, panes: pane("blocked") });
 
   const changes = changedControls(surfaceOf(before), surfaceOf(after));
-  assert.ok(changes.length > 0, "the pane count moved, so something must redraw");
+  assert.ok(changes.length > 0, "the second channel's agent went blocked, so something must redraw");
   assert.ok(
-    changes.every((change) => change.control === "encoder"),
-    "no key changed, so no key may be redrawn"
+    changes.every((change) => change.control !== "encoder" || [2, 3].includes(change.index)),
+    "only the second channel's strip regions may redraw"
   );
+  assert.ok(
+    changes.every((change) => change.control !== "key" || change.index === 4),
+    "only the second channel's state key may redraw"
+  );
+});
+
+test("a rebuilt but unchanged surface redraws nothing, even though faces nest", () => {
+  // Faces carry lists now, so comparing them by identity would redraw the whole
+  // device ten times a second.
+  const state = liveState({ workspaces: [workspaceOn(1, "auth")], panes: [] });
+  assert.deepEqual(changedControls(surfaceOf(state), surfaceOf(state)), []);
 });
 
 test("attaching a device reports every one of its controls as new", () => {

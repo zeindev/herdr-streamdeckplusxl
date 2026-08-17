@@ -14,6 +14,16 @@ Because ADR-0002 gives all six dials to the three channels, no dial is global. T
 
 **A workstream cannot be paused.** Herdr has no suspend; the nearest thing is sending `ctrl+c`, which is a stop. Focus and resume are real, pause is not, and it must not appear on a control.
 
+## What was built, and what the 400px actually holds (ticket `-2gn`)
+
+The permanent summary exists. Each channel's block leads with its **branch** on one line and its **readings** on the next — attention, then reserved space for the ticket count and the pull request, then the number of agents. Ticket and pull-request state render an explicit `?` rather than nothing, because a blank field reads as a field that does not exist and the point of reserving the space is that the developer learns where to look before there is anything to see. `-wl7` fills them in once `-5ot` publishes the tokens.
+
+Three findings worth keeping:
+
+- **The two regions are one composition, and had to be built as one.** The renderer draws the whole 400px block and each region is a window onto it, which is what lets a branch run past the seam instead of being cut in half at it. Both regions therefore carry the same described block.
+- **The budget is real and forced choices.** About 359px of usable width means roughly 23 cells on the branch line at 28px and 32 on the field line at 20px. Content is dropped rather than shrunk, so the field furthest right gives way first; attention and the reserved enrichment never do. A branch that will not fit loses its **start**, not its end — cutting the end would make `feature/auth/rewrite` and `feature/auth/revert` read identically, which is the ambiguity the decision above exists to prevent.
+- **The strip also had to answer for Herdr being gone.** When the connection is not live, every branch and count would be whatever was last true rather than what is true, so the strip goes dark and says so instead of showing a confident lie. That reading had no other home once the connection placeholder was replaced.
+
 ## Considered Options
 
 - **Strip as a facet selector**, dial 1 rotating through branch / tickets / pull request / diff stat. Rejected: richer per facet, but nothing is permanently visible, defeating the point of the surface.

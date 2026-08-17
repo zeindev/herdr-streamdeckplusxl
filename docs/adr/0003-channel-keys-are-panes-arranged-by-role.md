@@ -25,8 +25,15 @@ A pane's role is auto-suggested from `pane.process_info`, which returns each for
 
 ## Staged deviation, in force while ticket `-3rd` is the newest work
 
-The channel's **top row currently holds the workstream header** — label, branch, and aggregate agent state — not panes. This contradicts the decision above and is temporary.
+The channel's **top row still holds a two-key workstream header** — its label and its aggregate agent state — instead of panes. This contradicts the decision above and is temporary.
 
-The reason is ordering, not disagreement. This ADR puts identity on the strip regions, but the strip belongs to ticket `-2gn`, which had not run when the channels were first made readable in `-3rd`. Something had to carry identity for a channel to be a channel at all, so it went on keys, at a fixed row, marked as staged in the code (`HEADER_ROW` in `src/device/surface.ts`).
+The reason is ordering, not disagreement. This ADR puts identity on the strip regions, but the strip belonged to ticket `-2gn`, which had not run when the channels were first made readable in `-3rd`. Something had to carry identity for a channel to be a channel at all, so it went on keys, at a fixed row, marked as staged in the code (`HEADER_ROW` in `src/device/geometry.ts`).
 
-The deviation ends when `-2gn` moves identity to the strip: that row returns to panes, `HEADER_ROW` is deleted, and this section goes with it. Until then a channel has **two** role rows, not three, so `-4bb` cannot place all nine pane slots. `-2gn` and `-4bb` both carry a note about the other; whichever lands second reclaims the row.
+**`-2gn` has since shrunk it.** The branch moved to the strip, where it is permanently visible and has room not to be cut into ambiguity, and its key was dropped — so the header is two keys wide, not three, and each channel already has one more key free than it did. What did **not** move is the label, the repository, and the aggregate state, and the reason is the pixel budget rather than reluctance: the strip's 400px holds two lines, and the branch plus attention plus the reserved ticket and pull-request fields already fill them (ADR-0007).
+
+Two things must therefore happen together before the row can return to panes, and `-4bb` owns both:
+
+1. Somewhere else has to carry a workstream's label and state. The channel's own control row (ADR-0011) is the obvious home.
+2. `-77f` anchors the slot-reassignment hold to this row's first key (`heldLongEnough` in `src/device/state.ts`). That gesture needs a new home first. The strip is a good one and needs no timer: the SDK's `touchTap` carries `hold` and `tapPos` directly, confirmed in `node_modules/@elgato/streamdeck/dist/api/events/encoder.d.ts`.
+
+Until then a channel has **two** role rows and one spare key, not three rows.

@@ -47,8 +47,9 @@ test("channels take workstreams in Herdr's workspace order, deterministically", 
   const order = workstreamsOf({ workspaces, panes: [] }).map((workstream) => workstream.label);
   assert.deepEqual(order, ["first", "second", "third"]);
 
-  // Deterministic, but not yet fixed: closing the first workstream slides the
-  // rest along. Durable slot assignment is ADR-0009's answer and is not built.
+  // Deterministic, and deliberately not the device's geography: closing the
+  // first workstream slides this order along, which is exactly why `slots.ts`
+  // and not this order decides which channel a workstream holds.
   const afterClosing = workstreamsOf({ workspaces: workspaces.filter((w) => w.number !== 1), panes: [] });
   assert.deepEqual(afterClosing.map((workstream) => workstream.label), ["second", "third"]);
 });

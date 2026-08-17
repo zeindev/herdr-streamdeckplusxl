@@ -1,6 +1,6 @@
 import { MOTION_BASE_WIDTH, type AgentStatus, type PaneSnapshot, type ResolvedThemeSnapshot, type WorkingMotion } from "./model.js";
+import { displayWidth, graphemes, splitAtWidth, truncate } from "./text.js";
 
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const monoFont = `font-family="Consolas" font-weight="700"`;
 
 /**
@@ -33,10 +33,23 @@ type KeyView = {
 };
 
 /**
- * One region of the touch strip. The surface describes a control as a title and
- * a value; anything richer belongs to the projection, not the renderer.
+ * What a channel's strip block says. The projection has already decided what
+ * fits; the renderer only places it.
  */
-export type StripView = { title: string; value: string };
+export type StripView = {
+  /** Null when the channel holds no workstream, and nothing is lit. */
+  branch: string | null;
+  fields: ReadonlyArray<{ label: string; value: string }>;
+  /** Drawn at the far right of the whole strip, when there is any. */
+  overflow: number;
+  /** Replaces the whole strip when Herdr cannot be trusted. */
+  notice: string | null;
+};
+
+const BRANCH_SIZE = 28;
+const FIELD_SIZE = 20;
+/** Two cells between fields, matching the gap the projection budgets for. */
+const FIELD_GAP_CELLS = 2;
 
 export function keySvg(view: KeyView, theme?: ResolvedThemeSnapshot | null): string {
   if (view.blank) return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#000000"/></svg>`;
@@ -89,13 +102,19 @@ export function keySvg(view: KeyView, theme?: ResolvedThemeSnapshot | null): str
 /**
  * Renders one 200px region of the strip.
  *
- * The strip is one continuous composition drawn through several regions, so the
- * canvas spans the whole strip and each region is a window onto it. Its width
- * therefore depends on the device: six regions on the Stream Deck + XL.
+ * A channel's two regions are one composition, not two cards: the canvas spans
+ * the whole strip, the channel's block is drawn across its full width, and this
+ * region is a window onto it. That is what lets a branch run past the seam
+ * between two regions instead of being cut in half at it.
+ *
+ * Only information-bearing pixels are lit — the background is true black
+ * everywhere, and a channel holding no workstream draws nothing at all, since it
+ * has nothing to report and the key already carries the invitation.
  */
 export function stripRegionSvg(
   region: number,
   regionCount: number,
+  regionsPerChannel: number,
   view: StripView,
   theme?: ResolvedThemeSnapshot | null
 ): string {
@@ -104,14 +123,54 @@ export function stripRegionSvg(
   const subtext = oledForeground(theme, "subtext");
   const accent = palette ? oledColor(palette.accent, 3) : "#ffffff";
   const width = regionCount * 200;
-  const x = region * 200 + 18;
-  const bar = view.title || view.value ? `<rect x="${region * 200}" y="0" width="5" height="100" fill="${accent}"/>` : "";
+  const blockX = Math.floor(region / regionsPerChannel) * regionsPerChannel * 200;
+  const left = blockX + 18;
+
+  if (view.notice) {
+    // One message for the whole strip, drawn where the first region can see it.
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="${region * 200} 0 200 100">
+    <rect width="${width}" height="100" fill="#000000"/>
+    <text x="18" y="62" ${monoFont} font-size="${BRANCH_SIZE}" fill="${subtext}">${escapeXml(view.notice)}</text>
+  </svg>`;
+  }
+
+  const block = view.branch === null ? "" : [
+    `<rect x="${blockX}" y="0" width="5" height="100" fill="${accent}"/>`,
+    `<text x="${left}" y="44" ${monoFont} font-size="${BRANCH_SIZE}" fill="${text}">${escapeXml(view.branch)}</text>`,
+    fieldsSvg(view.fields, left, text, subtext)
+  ].join("");
+
+  // The overflow count sits at the far right of the whole strip (ADR-0011), and
+  // the channel sharing that region has already given up the space for it.
+  const overflow = view.overflow > 0
+    ? `<text x="${width - 18}" y="80" ${monoFont} font-size="${FIELD_SIZE}" fill="${palette ? oledColor(palette.peach) : "#ffffff"}" text-anchor="end">${escapeXml(`OVER +${view.overflow}`)}</text>`
+    : "";
+
   return `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="${region * 200} 0 200 100">
     <rect width="${width}" height="100" fill="#000000"/>
-    ${bar}
-    <text x="${x}" y="32" ${monoFont} font-size="20" letter-spacing="0.2" fill="${subtext}">${escapeXml(truncate(view.title, 10))}</text>
-    <text x="${x}" y="73" ${monoFont} font-size="28" fill="${text}">${escapeXml(truncate(view.value, 10))}</text>
+    ${block}${overflow}
   </svg>`;
+}
+
+/**
+ * Lays the readings out as one run of text, each named so a number is never bare.
+ *
+ * One `<text>` rather than one per word: the renderer advances the pen itself, so
+ * a label and its value cannot collide even where the font is substituted and
+ * every advance is wider than assumed. Nothing here measures anything — how much
+ * fits was decided by the projection, in cells.
+ */
+function fieldsSvg(fields: StripView["fields"], left: number, text: string, subtext: string): string {
+  if (fields.length === 0) return "";
+  const runs = fields
+    .map(
+      (field, index) =>
+        `${index === 0 ? "" : `<tspan fill="${subtext}">${" ".repeat(FIELD_GAP_CELLS)}</tspan>`}` +
+        `<tspan fill="${subtext}">${escapeXml(field.label)} </tspan>` +
+        `<tspan fill="${text}">${escapeXml(field.value)}</tspan>`
+    )
+    .join("");
+  return `<text x="${left}" y="80" ${monoFont} font-size="${FIELD_SIZE}" xml:space="preserve">${runs}</text>`;
 }
 
 function workingAnimation(view: KeyView, theme?: ResolvedThemeSnapshot | null): string {
@@ -257,9 +316,6 @@ function splitLabelLine(value: string, width: number): [string, string] {
   return [hardLine, rest.join("").trim()];
 }
 
-function truncate(value: string, width: number): string {
-  return displayWidth(value) <= width ? value : `${splitAtWidth(value, Math.max(1, width - 1))[0]}…`;
-}
 
 function compactContext(value: string, width: number): string {
   if (displayWidth(value) <= width) return value;
@@ -273,26 +329,9 @@ function compactContext(value: string, width: number): string {
   return `${truncate(value.slice(0, split), width - suffixWidth)}${suffix}`;
 }
 
-function graphemes(value: string): string[] {
-  return Array.from(graphemeSegmenter.segment(value), ({ segment }) => segment);
-}
 
-function splitAtWidth(value: string, width: number): [string, string] {
-  const characters = graphemes(value);
-  let index = 0;
-  let used = 0;
-  while (index < characters.length && used + graphemeWidth(characters[index]) <= width) used += graphemeWidth(characters[index++]);
-  return [characters.slice(0, index).join(""), characters.slice(index).join("")];
-}
 
-function displayWidth(value: string): number {
-  return graphemes(value).reduce((width, character) => width + graphemeWidth(character), 0);
-}
 
-// ponytail: Device labels use terminal-style cell widths; measure the shipped font only if physical overflow proves this estimate insufficient.
-function graphemeWidth(value: string): number {
-  return /[\p{Extended_Pictographic}\p{Regional_Indicator}\u20e3\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe10-\ufe6f\uff00-\uff60\uffe0-\uffe6\u{20000}-\u{3fffd}]/u.test(value) ? 2 : 1;
-}
 
 function escapeXml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[character]!);

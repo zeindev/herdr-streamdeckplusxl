@@ -650,14 +650,17 @@ test("an agent pane is asked about too, so its role can still be corrected", () 
   );
 });
 
-test("holding an agent key corrects its role, which was impossible while agents went unasked", () => {
+test("holding an agent key opens a role picker for its channel — which was impossible while agents went unasked", () => {
   const live = run(
     [runningIn("w1:a", "claude")],
     liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude" })]).state
   ).state;
 
-  const held = holdKey(live, keyAt(0, 0, 0));
-  assert.deepEqual(held.state.roles, { claude: "server" }, "the role after agent");
+  const down = run([{ kind: "key-down", key: keyAt(0, 0, 0), at: 5000 }], live).state;
+  const fired = run([{ kind: "tick", at: 5000 + HOLD_MS }], down).state;
+
+  assert.deepEqual(fired.rolePicker, { channel: 0, commandKey: "claude", at: 5000 + HOLD_MS });
+  assert.deepEqual(fired.roles, {}, "nothing is corrected yet — only browsed, the same as dial 1's own preview");
 });
 
 test("a pane whose process ends is asked about again, so it does not stay on the wrong row", () => {
@@ -696,16 +699,22 @@ test("what was learned about a pane is forgotten when the pane goes", () => {
   assert.deepEqual(gone.state.processes, {});
 });
 
-test("holding a pane key corrects its role, and the correction is persisted", () => {
+test("tapping a role in an open picker corrects it in one act, and the correction is persisted", () => {
   const live = run(
     [runningIn("w1:t", "vitest --watch")],
     liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "t")]).state
   ).state;
 
-  // vitest is detected as a test watcher, which puts it on the third row.
-  const held = holdKey(live, keyAt(0, 0, 2));
-  assert.deepEqual(held.state.roles, { "vitest --watch": "logs" }, "the next role after tests");
-  assert.deepEqual(held.commands, [{ kind: "save-roles", roles: { "vitest --watch": "logs" } }]);
+  // vitest is detected as a test watcher, on the shared third row; the
+  // picker puts every role from `ROLE_ROWS` where its own row already would,
+  // so SHELL sits two columns over on that same row.
+  const opened = holdKey(live, keyAt(0, 0, 2));
+  assert.deepEqual(opened.state.rolePicker, { channel: 0, commandKey: "vitest --watch", at: 5000 + HOLD_MS });
+
+  const picked = tapKey(opened.state, keyAt(0, 2, 2), 5000 + HOLD_MS + 100);
+  assert.deepEqual(picked.state.roles, { "vitest --watch": "shell" });
+  assert.equal(picked.state.rolePicker, null);
+  assert.deepEqual(picked.commands, [{ kind: "save-roles", roles: { "vitest --watch": "shell" } }]);
 });
 
 test("a correction is remembered by command line, so it survives the pane restarting", () => {
@@ -725,12 +734,130 @@ test("a correction is remembered by command line, so it survives the pane restar
   assert.equal(roleResolver(live.processes, live.roles)(live.snapshot.panes[0]), "server");
 });
 
-test("holding a pane nothing is known about corrects nothing, rather than forgetting it later", () => {
+test("holding a pane nothing is known about opens no picker, rather than forgetting a correction later", () => {
   const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "p")]).state;
   const held = holdKey(live, keyAt(0, 0, 2));
 
-  assert.deepEqual(held.state.roles, {}, "there is no command line to remember it by");
+  assert.equal(held.state.rolePicker, null, "there is no command line to remember a correction by");
+  assert.deepEqual(held.state.roles, {});
   assert.deepEqual(held.commands, []);
+});
+
+test("tapping anywhere but the picker's own five role keys cancels it without correcting anything (`-0vd.4`)", () => {
+  const live = run(
+    [runningIn("w1:a", "claude")],
+    liveWith2([workspaceOn(1, "auth"), workspaceOn(2, "billing")], [paneOn("w1", "a", { agent: "claude" })]).state
+  ).state;
+  const opened = holdKey(live, keyAt(0, 0, 0));
+  assert.ok(opened.state.rolePicker);
+
+  // A tap on a completely different channel's control row — DESIGN.md's
+  // Latest Action Rule, the same as any other press cancelling `armed`.
+  const cancelled = tapKey(opened.state, keyAt(1, 0, 3), 6000);
+  assert.equal(cancelled.state.rolePicker, null);
+  assert.deepEqual(cancelled.state.roles, {});
+});
+
+test("an open role picker reverts on its own once it times out, unconfirmed", () => {
+  const live = run(
+    [runningIn("w1:a", "claude")],
+    liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude" })]).state
+  ).state;
+  const opened = holdKey(live, keyAt(0, 0, 0), 1000).state;
+  const at = opened.rolePicker.at;
+
+  const tooSoon = run([{ kind: "tick", at: at + DIAL_PREVIEW_TIMEOUT_MS }], opened).state;
+  assert.ok(tooSoon.rolePicker, "not past the timeout yet");
+
+  const reverted = run([{ kind: "tick", at: at + DIAL_PREVIEW_TIMEOUT_MS + 1 }], opened).state;
+  assert.equal(reverted.rolePicker, null);
+});
+
+test("holding a pane key on a Mini-only rig still cycles one step — no device present can show a picker", () => {
+  const live = run(
+    [runningIn("w1:a", "claude")],
+    liveWithMini([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude" })]).state
+  ).state;
+
+  const held = holdKey(live, miniKeyAt(0, 1));
+  assert.deepEqual(held.state.roles, { claude: "server" });
+  assert.equal(held.state.rolePicker, null);
+});
+
+test("holding a pane reached via the paired Mini's global surface opens the picker on the channel actually showing its workstream", () => {
+  // The queue key does not sit on any particular channel's column — it is
+  // the paired Mini's own global surface (`-4w7`) — so the picker's channel
+  // has to come from which channel the pane's workstream is actually bound
+  // to, not from the key's position.
+  const live = run(
+    [runningIn("w1:a", "claude")],
+    liveWithPaired([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude", agent_status: "blocked" })]).state
+  ).state;
+
+  const held = holdKey(live, miniKeyAt(0, 0));
+  assert.deepEqual(held.state.rolePicker, { channel: 0, commandKey: "claude", at: 5000 + HOLD_MS });
+  assert.deepEqual(held.state.roles, {}, "not corrected yet — a tap on the XL's own picker still has to commit it");
+});
+
+test("reassigning a channel's workstream closes any role picker open on it", () => {
+  const live = run(
+    [runningIn("w1:a", "claude")],
+    liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude" })]).state
+  ).state;
+  const opened = holdKey(live, keyAt(0, 0, 0));
+  assert.ok(opened.state.rolePicker);
+
+  const reassigned = hold(opened.state, 0);
+  assert.equal(reassigned.state.rolePicker, null);
+});
+
+test("holding one of the picker's own role keys — rather than tapping it — still picks that role instead of opening a second picker underneath it", () => {
+  // The pane the picker was opened for sits on the agent row, so a long
+  // press on the SERVER key is a hold on a *different* physical position —
+  // exactly the case where the reducer must defer to what the picker is
+  // showing rather than resolving straight through to whatever real pane
+  // channelRowsOf would otherwise find sitting under it.
+  const live = run(
+    [runningIn("w1:a", "claude"), runningIn("w1:b", "vite")],
+    liveWith2(
+      [workspaceOn(1, "auth")],
+      [paneOn("w1", "a", { agent: "claude" }), paneOn("w1", "b")]
+    ).state
+  ).state;
+
+  const opened = holdKey(live, keyAt(0, 0, 0));
+  assert.deepEqual(opened.state.rolePicker, { channel: 0, commandKey: "claude", at: 5000 + HOLD_MS });
+
+  const heldAgain = holdKey(opened.state, keyAt(0, 0, 1), 10000); // SERVER's own position
+  assert.deepEqual(heldAgain.state.roles, { claude: "server" }, "picked the role the key was showing");
+  assert.equal(heldAgain.state.rolePicker, null, "the picker closed on the pick, not stayed open under a duplicate");
+});
+
+test("a press already held before the picker opened does not pick a role just because its release lands on one of the picker's keys", () => {
+  const live = run(
+    [runningIn("w1:a", "claude")],
+    liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude" })]).state
+  ).state;
+
+  const agentKey = keyAt(0, 0, 0);
+  const serverKey = keyAt(0, 0, 1); // no pane there; happens to be the picker's own SERVER position
+
+  // A second finger touches down on the SERVER position while the AGENT key
+  // is still mid-hold, before the picker exists to have a SERVER position at
+  // all.
+  const opened = run(
+    [
+      { kind: "key-down", key: agentKey, at: 5000 },
+      { kind: "key-down", key: serverKey, at: 5500 },
+      { kind: "tick", at: 5000 + HOLD_MS }
+    ],
+    live
+  ).state;
+  assert.deepEqual(opened.rolePicker, { channel: 0, commandKey: "claude", at: 5000 + HOLD_MS });
+
+  const released = run([{ kind: "key-up", key: serverKey, at: 5000 + HOLD_MS + 100 }], opened).state;
+  assert.deepEqual(released.roles, {}, "the stale press did not pick SERVER");
+  assert.ok(released.rolePicker, "the picker is still open, waiting for a real tap");
 });
 
 test("tapping a pane key focuses that pane in Herdr", () => {

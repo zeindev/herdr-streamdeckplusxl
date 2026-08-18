@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ROLES, ROLE_ROWS, commandKeyOf, identifyingProcess, roleOf } from "../../.preview/device/role.js";
+import { ROLES, ROLE_ROWS, commandKeyOf, identifyingProcess, roleAt, roleOf } from "../../.preview/device/role.js";
 
 /** A pane running nothing Herdr recognises as an agent. */
 const plainPane = (overrides = {}) => ({ pane_id: "p1", workspace_id: "w1", agent_status: "unknown", ...overrides });
@@ -156,4 +156,19 @@ test("an override naming a role this version does not have is ignored", () => {
 test("the rows cover every role exactly once", () => {
   assert.deepEqual(ROLE_ROWS.map((row) => [...row]), [["agent"], ["server"], ["tests", "logs", "shell"]]);
   assert.equal(new Set(ROLES).size, ROLES.length, "no role sits on two rows");
+});
+
+test("roleAt names the role a picker's row and column would show, the same position a channel's pane rows already use", () => {
+  assert.equal(roleAt(0, 0), "agent");
+  assert.equal(roleAt(1, 0), "server");
+  assert.equal(roleAt(2, 0), "tests");
+  assert.equal(roleAt(2, 1), "logs");
+  assert.equal(roleAt(2, 2), "shell");
+});
+
+test("roleAt is null wherever a row has fewer roles than columns, or the row does not exist at all", () => {
+  assert.equal(roleAt(0, 1), null, "agent's row has only one role");
+  assert.equal(roleAt(0, 2), null);
+  assert.equal(roleAt(1, 1), null, "server's row has only one role");
+  assert.equal(roleAt(3, 0), null, "there is no fourth role row");
 });

@@ -25,6 +25,7 @@ import {
   type ControlOutcome
 } from "./control.js";
 import {
+  DIAL_PREVIEW_TIMEOUT_MS,
   dial1Notice,
   dialItemsOf,
   pressBrowse,
@@ -54,8 +55,10 @@ import {
   commandLineOf,
   identifyingProcess,
   nextRole,
+  roleAt,
   roleResolver,
   type PaneProcesses,
+  type Role,
   type RoleOverrides
 } from "./role.js";
 import { assignSlot, bind, channelWorkstreams, cycle, emptySlots, forgetAbsent, sameSlots, workstreamKey, type Slots } from "./slots.js";
@@ -150,6 +153,13 @@ export type State = {
    * the meantime, or the reservation simply times out.
    */
   reservedChannel: SlotReservation | null;
+  /**
+   * The one channel currently showing the role-correction picker a pane
+   * key's hold opened, if any (`-0vd.4`). Global rather than per-channel —
+   * only one physical hold can be active at a time, the same reasoning
+   * `armed` already uses.
+   */
+  rolePicker: RolePicker | null;
   /** When a structural change was first seen, or null when nothing is pending. */
   resyncRequestedAt: number | null;
   /** The one actions key currently armed for a destructive interrupt, if any. */
@@ -160,6 +170,15 @@ export type State = {
 
 /** A channel waiting for the worktree its own `create` press asked for. */
 export type SlotReservation = { channel: number; repoKey: string; at: number };
+
+/**
+ * A channel's pane rows replaced with every role at once, for one pane's
+ * correction. `commandKey` is what the eventual pick is remembered
+ * against — the same durable key ordinary cycling already uses — rather
+ * than a pane id, so the correction survives the pane restarting exactly
+ * the way a single-step correction always has.
+ */
+export type RolePicker = { channel: number; commandKey: string; at: number };
 
 /**
  * How long a slot reservation waits for its worktree to appear before giving
@@ -192,6 +211,7 @@ export function initialState(): State {
     dial2: Array.from({ length: CHANNEL_COUNT }, () => null),
     dial2Acknowledgements: [],
     reservedChannel: null,
+    rolePicker: null,
     resyncRequestedAt: null,
     armed: null,
     controlAcknowledgements: []
@@ -349,8 +369,11 @@ export function reduce(state: State, event: DeviceEvent): Step {
       const dial2 = resync.state.dial2.map((selection) => (dueDial2ArmTimeout(selection, event.at) ? null : selection));
       const dial2Acknowledgements = liveDial2Acknowledgements(resync.state.dial2Acknowledgements, event.at);
       const reservedChannel = dueReservationTimeout(resync.state.reservedChannel, event.at) ? null : resync.state.reservedChannel;
+      // The role picker (`-0vd.4`) is a preview the same way a browsed dial-1
+      // selection is, not a destructive arm, so it reuses that same timeout.
+      const rolePicker = dueRolePickerTimeout(resync.state.rolePicker, event.at) ? null : resync.state.rolePicker;
       return {
-        state: { ...resync.state, armed, controlAcknowledgements, dial1, dial2, dial2Acknowledgements, reservedChannel },
+        state: { ...resync.state, armed, controlAcknowledgements, dial1, dial2, dial2Acknowledgements, reservedChannel, rolePicker },
         commands: [...hold.commands, ...resync.commands]
       };
     }
@@ -397,19 +420,42 @@ export function reduce(state: State, event: DeviceEvent): Step {
       // DESIGN.md's Latest Action Rule: the most recent physical press wins, so
       // pressing anything other than the armed actions key itself cancels a
       // pending arm rather than leaving it live for a confirmation the
-      // developer was not reaching for.
+      // developer was not reaching for. An open role picker follows the same
+      // rule: pressing anything that is not one of its own five role keys
+      // backs out of it (`-0vd.4`).
       const armed = armedElsewhere(state.armed, controlCellAt(state, event.key)) ? null : state.armed;
+      const rolePicker = rolePickerElsewhere(state.rolePicker, state, event.key) ? null : state.rolePicker;
       if (state.pressed.some((held) => sameKey(held.key, event.key))) {
-        return armed === state.armed ? { state, commands: [] } : { state: { ...state, armed }, commands: [] };
+        return armed === state.armed && rolePicker === state.rolePicker
+          ? { state, commands: [] }
+          : { state: { ...state, armed, rolePicker }, commands: [] };
       }
-      return { state: { ...state, armed, pressed: [...state.pressed, { key: event.key, at: event.at }] }, commands: [] };
+      return { state: { ...state, armed, rolePicker, pressed: [...state.pressed, { key: event.key, at: event.at }] }, commands: [] };
     }
 
     case "key-up": {
-      if (!state.pressed.some((held) => sameKey(held.key, event.key))) return { state, commands: [] };
-      const pressed = state.pressed.filter((held) => !sameKey(held.key, event.key));
+      const held = state.pressed.find((candidate) => sameKey(candidate.key, event.key));
+      if (!held) return { state, commands: [] };
+      const pressed = state.pressed.filter((candidate) => candidate !== held);
       // A hold has already fired and taken its press with it, so anything still
       // held here was a tap.
+
+      // A tap while the picker is open, on one of its own five role keys, is
+      // the whole correction — checked first, since those keys resolve to a
+      // pane cell too and must not also focus or acknowledge one. Gated on
+      // this press having started at or after the picker opened: a second
+      // finger already down elsewhere before the hold that opened it must
+      // not have its eventual release read as a pick just because it happens
+      // to land on one of the picker's five positions.
+      const picked = rolePickerCellAt(state, event.key);
+      if (picked && state.rolePicker) {
+        // A stale press — already down before the picker opened — releasing
+        // over one of its keys is not a pick; it is also not a tap on
+        // whatever pane the picker is covering, since that is not what this
+        // key is showing right now.
+        return held.at >= state.rolePicker.at ? applyRolePick({ ...state, pressed }, picked) : { state: { ...state, pressed }, commands: [] };
+      }
+
       const cell = cellAt(state, event.key);
       if (cell?.kind === "pane") {
         // Going to look at finished work is what acknowledges it, so the same
@@ -448,7 +494,10 @@ export function reduce(state: State, event: DeviceEvent): Step {
       const reassigned = !sameSlots(state.slots, slots);
       const dial1 = reassigned ? withDial1(state.dial1, channel, null) : state.dial1;
       const dial2 = reassigned ? withDial2(state.dial2, channel, null) : state.dial2;
-      return { state: { ...state, slots, dial1, dial2 }, commands: savedIfChanged(state.slots, slots) };
+      // A picker open on this channel was correcting a pane belonging to the
+      // workstream that just left it — nothing left here to correct.
+      const rolePicker = reassigned && state.rolePicker?.channel === channel ? null : state.rolePicker;
+      return { state: { ...state, slots, dial1, dial2, rolePicker }, commands: savedIfChanged(state.slots, slots) };
     }
 
     case "encoder-rotate": {
@@ -759,10 +808,42 @@ function heldLongEnough(state: State, at: number): PressedKey | null {
  */
 function applyHold(state: State, held: PressedKey, at: number): Step {
   const spent = { ...state, pressed: state.pressed.filter((candidate) => candidate !== held) };
+
+  // Checked before `cellAt`, the same order `key-up` already checks it in:
+  // while a picker is open, its own five keys sit over whatever pane cell
+  // `cellAt` would otherwise see there, and a long press on one of them must
+  // still pick that role rather than `cellAt` resolving straight through to
+  // the pane underneath and opening (or cycling) an unrelated correction.
+  const picked = rolePickerCellAt(state, held.key);
+  if (picked) return applyRolePick(spent, picked);
+
   const cell = cellAt(state, held.key);
   if (cell?.kind === "pane") {
     const key = commandKeyOf(state.processes[cell.pane.pane_id] ?? undefined);
     if (!key) return { state: spent, commands: [] };
+
+    // Which channel the picker would open on is the pane's own workstream's
+    // channel, not the held key's column — column only happens to equal
+    // channel on the XL and on a standalone Mini's mirror; the paired Mini's
+    // global surface (`-4w7`) reuses its columns for the queue and recent
+    // keys instead, so column math there would open a picker on whatever
+    // channel happens to share that column, not the one the held pane
+    // actually belongs to.
+    const channel = channelShowing(state, cell.pane.workspace_id);
+    if (channel !== null && rigOf(state) !== "mini-only") {
+      // Cycling one step per hold costs up to four holds, each moving the key
+      // to a different row (`-0vd.4`). Wherever an XL is present — paired or
+      // alone — it has room to show every role at once instead, so a hold
+      // opens a picker there rather than stepping, whichever device the hold
+      // itself started on.
+      const rolePicker: RolePicker = { channel, commandKey: key, at };
+      return { state: { ...spent, rolePicker }, commands: [] };
+    }
+    // Either a Mini-only rig, which has no device anywhere that can show a
+    // picker — the same reduced capability ADR-0008 already accepts for a
+    // Mini alone ("it cannot... run a verb list") — or a pane whose own
+    // workstream is not currently bound to any channel at all, so there is
+    // nowhere to open one. Holding still cycles one step, exactly as before.
     const roles = { ...state.roles, [key]: nextRole(cell.role) };
     return { state: { ...spent, roles }, commands: [{ kind: "save-roles", roles }] };
   }
@@ -793,6 +874,53 @@ function controlCellAt(state: State, key: KeyAddress): { workspaceId: string; co
   const channel = channelOfColumn(layout, key.column);
   const workstream = channelWorkstreams(state.slots, presentWorkstreams(state))[channel];
   return workstream ? { workspaceId: workstream.workspaceId, column: columnInChannel(layout, key.column) } : null;
+}
+
+/**
+ * How long an open role picker waits before reverting to the channel's
+ * ordinary rows on its own — a preview left untouched, not a destructive
+ * arm, so it reuses dial 1's own preview timeout (`-0vd.4`) rather than a
+ * third duration invented for this ticket.
+ */
+function dueRolePickerTimeout(picker: RolePicker | null, at: number): boolean {
+  return picker !== null && at - picker.at > DIAL_PREVIEW_TIMEOUT_MS;
+}
+
+/**
+ * The role one of the picker's own five keys names, if a picker is open on
+ * this key's channel and this is one of them. Derived the same way
+ * `controlCellAt` derives the control row, from the same inputs, so a tap
+ * can never pick a different role than the one the key is actually showing.
+ */
+function rolePickerCellAt(state: State, key: KeyAddress): Role | null {
+  const picker = state.rolePicker;
+  if (!picker) return null;
+  const layout = layoutOf(state, key.deviceId);
+  if (!layout || layout.kind !== "xl" || channelOfColumn(layout, key.column) !== picker.channel) return null;
+  if (key.row === layout.rows - 1) return null; // the control row is untouched by the picker
+  return roleAt(key.row, columnInChannel(layout, key.column));
+}
+
+/** Whether a press somewhere else should cancel an open role picker — DESIGN.md's Latest Action Rule, the same as `armedElsewhere`. */
+function rolePickerElsewhere(picker: RolePicker | null, state: State, key: KeyAddress): boolean {
+  return picker !== null && rolePickerCellAt(state, key) === null;
+}
+
+/** What tapping one of the picker's five role keys does: remembers the pick against the pane's command line, and closes the picker. */
+function applyRolePick(state: State, role: Role): Step {
+  const picker = state.rolePicker;
+  if (!picker) return { state, commands: [] }; // the picker closed between the down and the up
+  const roles = { ...state.roles, [picker.commandKey]: role };
+  return { state: { ...state, roles, rolePicker: null }, commands: [{ kind: "save-roles", roles }] };
+}
+
+/** The channel currently showing a workstream, or `null` when nothing does. */
+function channelShowing(state: State, workspaceId: string | undefined): number | null {
+  if (!workspaceId) return null;
+  const channel = channelWorkstreams(state.slots, presentWorkstreams(state)).findIndex(
+    (workstream) => workstream?.workspaceId === workspaceId
+  );
+  return channel === -1 ? null : channel;
 }
 
 /**

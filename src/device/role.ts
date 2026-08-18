@@ -22,6 +22,19 @@ export const ROLE_ROWS: ReadonlyArray<readonly Role[]> = [["agent"], ["server"],
 export const ROLES: readonly Role[] = ROLE_ROWS.flat();
 
 /**
+ * The role a picker's row and column names, or `null` where a role with
+ * fewer roles than the row has columns already leaves a position blank.
+ *
+ * A role's own row is exactly where a channel's pane rows already put it
+ * (`ROLE_ROWS`), so the role-correction picker (`-0vd.4`) reuses this same
+ * mapping rather than inventing a second layout: agent's key sits where an
+ * agent pane already would, and so on down the channel.
+ */
+export function roleAt(row: number, column: number): Role | null {
+  return ROLE_ROWS[row]?.[column] ?? null;
+}
+
+/**
  * The process that says what a pane is for.
  *
  * Not the first in the list, which is the mistake this exists to prevent: a

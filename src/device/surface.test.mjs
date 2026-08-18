@@ -155,6 +155,47 @@ test("a channel's rows are its roles, top to bottom", () => {
   );
 });
 
+/**
+ * The role-correction picker (`-0vd.4`): a hold on a pane key opens it, and
+ * it shows every role at once rather than making the developer cycle one
+ * step per hold. The reducer's own open/pick/cancel/timeout decisions are
+ * covered in state.test.mjs; this is only what gets drawn.
+ */
+test("an open role picker shows every role at once, each where its own row already puts it", () => {
+  const live = liveState({
+    workspaces: [workspaceOn(1, "auth")],
+    panes: [paneOn("w1", "agent", { agent: "claude" })],
+    processes: { "w1:agent": "claude" }
+  });
+  const opened = run([{ kind: "key-down", key: { deviceId: "xl-1", column: 0, row: 0 }, at: 1000 }, { kind: "tick", at: 1000 + HOLD_MS }], live);
+
+  const device = surfaceOf(opened).devices[0];
+  assert.deepEqual(rowOf(device, 0, 0), [{ kind: "text", label: "AGENT" }, BLANK, BLANK]);
+  assert.deepEqual(rowOf(device, 0, 1), [{ kind: "text", label: "SERVER" }, BLANK, BLANK]);
+  assert.deepEqual(rowOf(device, 0, 2), [
+    { kind: "text", label: "TESTS" },
+    { kind: "text", label: "LOGS" },
+    { kind: "text", label: "SHELL" }
+  ]);
+});
+
+test("an open role picker leaves the control row and every other channel untouched", () => {
+  const live = liveState({
+    workspaces: [workspaceOn(1, "auth"), workspaceOn(2, "billing")],
+    panes: [paneOn("w1", "agent", { agent: "claude" }), paneOn("w2", "b", { label: "billing shell" })],
+    processes: { "w1:agent": "claude" }
+  });
+  const opened = run([{ kind: "key-down", key: { deviceId: "xl-1", column: 0, row: 0 }, at: 1000 }, { kind: "tick", at: 1000 + HOLD_MS }], live);
+
+  const device = surfaceOf(opened).devices[0];
+  assert.deepEqual(
+    rowOf(device, 0, 3).map((face) => face.kind),
+    ["text", "text", "text"],
+    "the picker replaces the pane rows, not the control row"
+  );
+  assert.equal(rowOf(device, 1, 2)[0].label, "billing shell", "billing's own channel was never touched");
+});
+
 test("a pane with no agent reports no state, since Herdr has none to give", () => {
   // Every service pane reports `unknown`, so drawing that would mark every one
   // of them with an outline that says nothing.

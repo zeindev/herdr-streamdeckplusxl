@@ -11,7 +11,7 @@ import {
 import { ACTIONS_COLUMN, FOCUS_COLUMN, GIT_COLUMN, acknowledgementFor } from "./control.js";
 import { CHANNEL_COUNT, channelKeyIndex, channelOfEncoder, keyCount, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
 import { channelAgentStatus, mostUrgentPaneOf, paneKeyLabel, type PaneCell } from "./panes.js";
-import { roleResolver } from "./role.js";
+import { ROLE_ROWS, roleResolver } from "./role.js";
 import type { PaneProcesses, Role } from "./role.js";
 import { channelWorkstreams, overflowOf } from "./slots.js";
 import { channelRowsOf, dial1NoticeOf, dial2NoticeOf, queuePaneOf, recentPaneOf, rigOf, type State } from "./state.js";
@@ -167,6 +167,7 @@ function keysOf(
 
   const attentionByPaneId = attentionByPane(attention);
   const keys = Array.from({ length: keyCount(layout) }, () => BLANK);
+  const controlRow = layout.rows - 1;
   for (let channel = 0; channel < CHANNEL_COUNT; channel++) {
     const workstream = workstreams[channel];
     if (!workstream) {
@@ -175,17 +176,43 @@ function keysOf(
       keys[channelKeyIndex(layout, channel, 0, 0)] = { kind: "empty", slot: channel };
       continue;
     }
-    channelRowsOf(state, layout, channel).forEach((row, rowIndex) =>
-      row.forEach((cell, column) => {
-        if (cell) keys[channelKeyIndex(layout, channel, column, rowIndex)] = paneFace(cell, state.processes, attentionByPaneId);
-      })
-    );
-    const controlRow = layout.rows - 1;
+    if (state.rolePicker?.channel === channel) {
+      // A hold opened a picker for one pane on this channel (`-0vd.4`): every
+      // role at once, in exactly the position its own row already puts it,
+      // so a tap anywhere in these rows is the whole correction.
+      rolePickerFaces(layout).forEach((row, rowIndex) =>
+        row.forEach((face, column) => {
+          if (face) keys[channelKeyIndex(layout, channel, column, rowIndex)] = face;
+        })
+      );
+    } else {
+      channelRowsOf(state, layout, channel).forEach((row, rowIndex) =>
+        row.forEach((cell, column) => {
+          if (cell) keys[channelKeyIndex(layout, channel, column, rowIndex)] = paneFace(cell, state.processes, attentionByPaneId);
+        })
+      );
+    }
     for (let column = 0; column < layout.columnsPerChannel; column++) {
       keys[channelKeyIndex(layout, channel, column, controlRow)] = controlFace(column, workstream, state);
     }
   }
   return keys;
+}
+
+/**
+ * One channel's pane rows, replaced with every role at once — the picker's
+ * own faces, before the control row. Built the same way `paneRowsOf`
+ * (panes.ts) lays panes into a grid, mapping `ROLE_ROWS` directly rather than
+ * re-deriving its shape, so the two can never disagree about how many rows a
+ * channel's pane area has.
+ */
+function rolePickerFaces(layout: DeviceLayout): Array<Array<KeyFace | null>> {
+  return ROLE_ROWS.map((roles) =>
+    Array.from({ length: layout.columnsPerChannel }, (_, column) => {
+      const role = roles[column];
+      return role ? { kind: "text", label: role.toUpperCase() } : null;
+    })
+  );
 }
 
 /**

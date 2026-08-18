@@ -1,6 +1,6 @@
 id = "dev.herdr.streamdeck"
 name = "Herdr Stream Deck"
-version = "0.1.1"
+version = "0.1.2"
 min_herdr_version = "0.8.0"
 description = "A control surface for running several development workstreams in parallel."
 platforms = ["linux", "macos", "windows"]

@@ -37,7 +37,7 @@ export type Dial2Item =
  * candidates come from there, not from itself.
  */
 export function dial2ItemsOf(workstream: Workstream | null, present: readonly Workstream[]): Dial2Item[] {
-  if (workstream) return workstream.worktree ? [{ kind: "remove", workspaceId: workstream.workspaceId }] : [];
+  if (workstream) return workstream.worktree?.isLinked ? [{ kind: "remove", workspaceId: workstream.workspaceId }] : [];
 
   const byRepo = new Map<string, Dial2Item>();
   for (const candidate of present) {

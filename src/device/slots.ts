@@ -37,9 +37,24 @@ export function emptySlots(): Slots {
  * id are different kinds of name and must never be able to collide.
  */
 export function workstreamKey(workstream: Workstream): string {
-  return workstream.worktree
+  return workstream.worktree?.isLinked
     ? `checkout:${workstream.worktree.checkoutPath}`
     : `workspace:${workstream.workspaceId}`;
+}
+
+/**
+ * Forgets a workstream that Herdr explicitly closed.
+ *
+ * Missing from one snapshot is not enough: Herdr may be restarting, so `bind`
+ * deliberately keeps that slot remembered. A `workspace_closed` event is
+ * stronger evidence — the workstream's life actually ended, and its channel
+ * must be free for whatever is created next.
+ */
+export function forgetWorkstream(slots: Slots, key: string): Slots {
+  const bindings = slots.bindings.map((binding) => (binding === key ? null : binding));
+  const detached = slots.detached.filter((candidate) => candidate !== key);
+  const changed = bindings.some((binding, index) => binding !== slots.bindings[index]) || detached.length !== slots.detached.length;
+  return changed ? { bindings, detached } : slots;
 }
 
 /**

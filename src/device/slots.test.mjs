@@ -9,6 +9,7 @@ import {
   cycle,
   emptySlots,
   forgetAbsent,
+  forgetWorkstream,
   overflowOf,
   readSlots,
   storedSlots,
@@ -46,6 +47,26 @@ test("a workspace with no worktree keys on its id, the only durable thing it has
   // The two namespaces must never be able to collide.
   const [worktreeBacked] = streams(workspace(2, "other", "workspace:w1"));
   assert.notEqual(workstreamKey(worktreeBacked), "workspace:w1");
+});
+
+test("a primary checkout keeps its workspace key when Herdr adds non-linked checkout metadata", () => {
+  const before = streams({ ...workspace(1, "primary"), worktree: null })[0];
+  const linkedShape = workspace(1, "primary", "/repo");
+  const after = streams({
+    ...linkedShape,
+    worktree: { ...linkedShape.worktree, is_linked_worktree: false }
+  })[0];
+
+  assert.equal(workstreamKey(before), "workspace:w1");
+  assert.equal(workstreamKey(after), "workspace:w1");
+});
+
+test("an explicitly closed workstream gives up its remembered channel", () => {
+  const workstreams = streams(workspace(1, "auth"), workspace(2, "billing"));
+  const bound = bind(emptySlots(), workstreams);
+  const forgotten = forgetWorkstream(bound, workstreamKey(workstreams[1]));
+
+  assert.deepEqual(forgotten.bindings, ["checkout:/w/auth", null, null]);
 });
 
 test("there are always exactly three slots, however few workstreams exist", () => {

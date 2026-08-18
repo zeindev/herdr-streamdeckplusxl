@@ -23,6 +23,17 @@ function recorded(kind, at = 0) {
   return { kind: "herdr-event", event: { event: found.event, data: found.data }, at };
 }
 
+function workspaceClosed(workspaceId, at = 0) {
+  const captured = recorded("workspace_closed", at);
+  return {
+    ...captured,
+    event: {
+      ...captured.event,
+      data: { ...captured.event.data, workspace_id: workspaceId, workspace: { ...captured.event.data.workspace, workspace_id: workspaceId } }
+    }
+  };
+}
+
 function snapshotOf({ workspaces = [], panes = [], tabs = [] } = {}) {
   return { kind: "herdr-snapshot", snapshot: { workspaces, panes, tabs } };
 }
@@ -408,8 +419,9 @@ test("closing a workspace schedules the re-read that empties its channel", () =>
     snapshotOf({ workspaces: [recordedWorkspace({ workspace_id: "w6", number: 1 })] })
   ]).state;
 
-  const { commands } = run([recorded("workspace_closed"), { kind: "tick", at: RESYNC_DEBOUNCE_MS + 1 }], live);
-  assert.deepEqual(commands, [{ kind: "load-snapshot" }]);
+  const { state, commands } = run([recorded("workspace_closed"), { kind: "tick", at: RESYNC_DEBOUNCE_MS + 1 }], live);
+  assert.equal(state.slots.bindings[0], null, "an explicit close releases the remembered channel before the snapshot arrives");
+  assert.deepEqual(commands, [{ kind: "save-slots", slots: state.slots }, { kind: "load-snapshot" }]);
 });
 
 /** A workspace on a checkout of its own, which is what a slot remembers it by. */
@@ -580,6 +592,32 @@ test("a workspace with no worktree occupies a channel like any other", () => {
   const { state } = liveWith([primary, workspaceOn(2, "auth")], run([xl]).state);
 
   assert.deepEqual(state.slots.bindings, ["workspace:w1", "checkout:/w/auth", null]);
+});
+
+test("adding primary-checkout metadata does not move its workspace to another channel", () => {
+  const primary = { ...workspaceOn(1, "primary"), worktree: null };
+  const live = liveWith([primary], run([xl]).state).state;
+  assert.deepEqual(live.slots.bindings, ["workspace:w1", null, null]);
+
+  const linkedShape = workspaceOn(1, "primary");
+  const withCheckout = {
+    ...linkedShape,
+    worktree: { ...linkedShape.worktree, checkout_path: "/repo", is_linked_worktree: false }
+  };
+  const refreshed = liveWith([withCheckout], live);
+  assert.deepEqual(refreshed.state.slots.bindings, ["workspace:w1", null, null]);
+  assert.deepEqual(refreshed.commands.filter((command) => command.kind === "save-slots"), []);
+});
+
+test("a worktree created after an explicit close takes the channel that close freed", () => {
+  const primary = { ...workspaceOn(1, "primary"), worktree: null };
+  const disposable = { ...workspaceOn(2, "shell"), worktree: null };
+  const live = liveWith([primary, disposable], run([xl]).state).state;
+  assert.deepEqual(live.slots.bindings, ["workspace:w1", "workspace:w2", null]);
+
+  const closed = run([workspaceClosed("w2", 100)], live).state;
+  const created = liveWith([primary, workspaceOn(3, "feature")], closed).state;
+  assert.deepEqual(created.slots.bindings, ["workspace:w1", "checkout:/w/feature", null]);
 });
 
 const paneOn = (workspaceId, id, overrides = {}) => ({
@@ -1644,6 +1682,20 @@ test("a channel holding a workspace with no worktree offers nothing on dial 2 â€
   assert.deepEqual(commands, []);
 });
 
+test("a primary checkout with non-linked metadata still offers nothing to remove", () => {
+  const linkedShape = workspaceOn(1, "primary");
+  const primary = {
+    ...linkedShape,
+    worktree: { ...linkedShape.worktree, is_linked_worktree: false }
+  };
+  const live = liveWith2([primary], []).state;
+  const rotated = rotateDial2(live, 0, 1, 100);
+  assert.equal(rotated.state.dial2[0], null);
+
+  const pressed = pressDial2(live, 0, 200);
+  assert.deepEqual(pressed.state.dial2Acknowledgements, [{ channel: 0, ok: false, message: "NO WORKTREE", until: 200 + ACK_DISPLAY_MS }]);
+});
+
 test("pressing dial 2 on a channel with no worktree refuses locally, named, rather than doing nothing silently", () => {
   const primary = { ...workspaceOn(1, "primary"), worktree: null };
   const live = liveWith2([primary], []).state;
@@ -1682,18 +1734,17 @@ test("a worktree created from a channel binds to that channel once it appears, n
   assert.equal(after.reservedChannel, null, "consumed");
 });
 
-test("pressing dial 2's remove arms it rather than removing immediately", () => {
+test("pressing dial 2 on a linked worktree arms its only verb directly, without requiring a rotate", () => {
   const live = liveWith2([workspaceOn(1, "auth")], []).state;
-  const browsing = rotateDial2(live, 0, 1, 100).state;
 
-  const pressed = pressDial2(browsing, 0, 200);
+  const pressed = pressDial2(live, 0, 200);
   assert.deepEqual(pressed.commands, []);
   assert.deepEqual(pressed.state.dial2[0], { mode: "armed", at: 200 });
 });
 
 test("confirming an armed removal within the timeout sends worktree.remove for that workstream", () => {
   const live = liveWith2([workspaceOn(1, "auth")], []).state;
-  const armed = pressDial2(rotateDial2(live, 0, 1, 100).state, 0, 200).state;
+  const armed = pressDial2(live, 0, 200).state;
 
   const confirmed = pressDial2(armed, 0, 500);
   assert.deepEqual(confirmed.commands, [
@@ -1704,7 +1755,7 @@ test("confirming an armed removal within the timeout sends worktree.remove for t
 
 test("an armed removal reverts on its own once it times out, unconfirmed", () => {
   const live = liveWith2([workspaceOn(1, "auth")], []).state;
-  const armed = pressDial2(rotateDial2(live, 0, 1, 100).state, 0, 200).state;
+  const armed = pressDial2(live, 0, 200).state;
 
   const tooSoon = run([{ kind: "tick", at: 200 + REMOVE_ARM_TIMEOUT_MS }], armed).state;
   assert.equal(tooSoon.dial2[0].mode, "armed", "not past the timeout yet");
@@ -1715,7 +1766,7 @@ test("an armed removal reverts on its own once it times out, unconfirmed", () =>
 
 test("rotating dial 2 while a removal is armed cancels the arm rather than leaving it live for a confirmation the developer was not reaching for", () => {
   const live = liveWith2([workspaceOn(1, "auth")], []).state;
-  const armed = pressDial2(rotateDial2(live, 0, 1, 100).state, 0, 200).state;
+  const armed = pressDial2(live, 0, 200).state;
 
   const { state, commands } = rotateDial2(armed, 0, 1, 300);
   assert.equal(state.dial2[0].mode, "browse");

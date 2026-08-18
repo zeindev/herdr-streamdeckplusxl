@@ -59,7 +59,7 @@ import {
   type Role,
   type RoleOverrides
 } from "./role.js";
-import { assignSlot, bind, channelWorkstreams, cycle, emptySlots, forgetAbsent, sameSlots, workstreamKey, type Slots } from "./slots.js";
+import { assignSlot, bind, channelWorkstreams, cycle, emptySlots, forgetAbsent, forgetWorkstream, sameSlots, workstreamKey, type Slots } from "./slots.js";
 import { oneWorkspacePerRepository, workstreamsOf, type Branches, type Workstream } from "./workstream.js";
 
 /**
@@ -660,11 +660,18 @@ function applyDial2Press(state: State, channel: number, at: number): Step {
     };
   }
 
+  // A linked worktree has exactly one verb, so the first push can arm it
+  // directly. Requiring a rotate to discover the only possible selection made
+  // the physical control appear dead and contradicted its own documentation.
+  if (items[0]?.kind === "remove") {
+    return { state: { ...state, dial2: withDial2(state.dial2, channel, { mode: "armed", at }) }, commands: [] };
+  }
+
   // Nothing has been browsed yet. A bound channel whose workstream has no
   // worktree has nothing dial 2 could ever remove — that refuses locally,
   // named, rather than a press there silently doing nothing, the same
   // honesty the actions key already gives a workstream with no agent pane.
-  if (workstream && !workstream.worktree) {
+  if (workstream && !workstream.worktree?.isLinked) {
     const dial2Acknowledgements = acknowledgeDial2(state.dial2Acknowledgements, { channel, ok: false, message: "NO WORKTREE" }, at);
     return { state: { ...state, dial2Acknowledgements }, commands: [] };
   }
@@ -737,6 +744,14 @@ function applyHerdrEvent(state: State, event: HerdrEvent, at: number): Step {
     const forgotten = withoutPane(state, event.data.pane_id);
     if (state.resyncRequestedAt !== null) return { state: forgotten, commands: [] };
     return { state: { ...forgotten, resyncRequestedAt: at }, commands: [] };
+  }
+
+  if (event.event === "workspace_closed") {
+    const workspaceId = typeof event.data.workspace_id === "string" ? event.data.workspace_id : null;
+    const closed = workspaceId ? presentWorkstreams(state).find((workstream) => workstream.workspaceId === workspaceId) : undefined;
+    const slots = closed ? forgetWorkstream(state.slots, workstreamKey(closed)) : state.slots;
+    const next = state.resyncRequestedAt === null ? { ...state, slots, resyncRequestedAt: at } : { ...state, slots };
+    return { state: next, commands: savedIfChanged(state.slots, slots) };
   }
 
   if (STRUCTURAL_EVENTS.has(event.event)) {

@@ -1658,3 +1658,20 @@ test("dial 1's encoder does not touch dial 2's state, and vice versa", () => {
   const dial2Only = rotateDial2(live, 0, 1, 100).state;
   assert.equal(dial2Only.dial1[0], null);
 });
+
+test("every pane behind a row's overflow count can still be focused from the device, via dial 1 (`-0vd.3`)", () => {
+  // Four plain shell panes share one three-key row; the row's own `fitRow`
+  // shows the first two and counts the rest, leaving "w1:c" and "w1:d" with
+  // no key at all. Dial 1 rotates the workstream's panes directly rather
+  // than the row, so it reaches every one of them regardless of whether the
+  // row had room to show it.
+  const panes = ["a", "b", "c", "d"].map((id) => paneOn("w1", id));
+  const live = liveWith2([workspaceOn(1, "auth")], panes).state;
+
+  const focused = ["w1:a", "w1:b", "w1:c", "w1:d"].map((_, index) => {
+    const browsed = rotateDial1(live, 0, index + 1, 100).state;
+    return pressDial1(browsed, 0, 200).commands[0]?.params.pane_id;
+  });
+
+  assert.deepEqual(focused, ["w1:a", "w1:b", "w1:c", "w1:d"]);
+});

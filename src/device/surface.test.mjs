@@ -1022,3 +1022,30 @@ test("dial 2's failure is acknowledged on the channel's strip, naming the cause"
   const [device] = surfaceOf(acknowledged).devices;
   assert.equal(device.encoders[0].block.notice, "worktree has uncommitted changes");
 });
+
+/**
+ * `-0vd.3`: panes a row's own overflow count hides used to be reachable by
+ * nothing on the device at all. Dial 1 (`-u5d`) rotates a workstream's panes
+ * directly rather than the row, so it already reaches every one of them —
+ * this pins that down against the exact scenario the bug described, rather
+ * than trusting it as an unverified side effect of a later ticket.
+ */
+test("panes a row's overflow count hides are reachable by nothing on the key grid, but dial 1 can still reach them", () => {
+  const panes = ["a", "b", "c", "d"].map((id) => paneOn("w1", id));
+  const live = liveState({ workspaces: [workspaceOn(1, "auth")], panes });
+
+  const [device] = surfaceOf(live).devices;
+  const sharedRow = rowOf(device, 0, 2); // the tests/logs/shell row every plain shell pane lands on
+  assert.equal(sharedRow[0].kind, "pane");
+  assert.equal(sharedRow[1].kind, "pane");
+  assert.equal(sharedRow[2].kind, "more");
+  assert.equal(sharedRow[2].count, 2, "two panes have no key of their own");
+
+  // "w1:c" and "w1:d" — the two the row's count hides, by pane-id order —
+  // are still there for dial 1 to name and select.
+  const atThird = run([{ kind: "encoder-rotate", deviceId: "xl-1", encoder: 0, ticks: 3, at: 100 }], live);
+  assert.equal(surfaceOf(atThird).devices[0].encoders[0].block.notice, "> w1:c");
+
+  const atFourth = run([{ kind: "encoder-rotate", deviceId: "xl-1", encoder: 0, ticks: 1, at: 200 }], atThird);
+  assert.equal(surfaceOf(atFourth).devices[0].encoders[0].block.notice, "> w1:d");
+});

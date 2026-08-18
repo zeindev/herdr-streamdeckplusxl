@@ -64,12 +64,7 @@ function keyView(face: KeyFace): Parameters<typeof keySvg>[0] {
       // A count of what the row had no key for, named so the number is not bare.
       // It carries the mark when something behind it is asking, because the
       // channel's total counts those panes and they have no key of their own.
-      return {
-        label: face.attention ? ATTENTION_WORDS[face.attention] : "MORE",
-        count: face.count,
-        ...(face.attention ? { attention: true } : {}),
-        ...(face.attention === "exited" ? { danger: true } : {})
-      };
+      return countView("MORE", face);
     case "text":
       return {
         label: face.label,
@@ -88,7 +83,26 @@ function keyView(face: KeyFace): Parameters<typeof keySvg>[0] {
         ...(face.attention ? { attention: true } : {}),
         ...(face.attention === "exited" ? { danger: true } : {})
       };
+    case "queue":
+      // The paired Mini's attention queue (`-4w7`): a count across every
+      // workstream, worded and marked the same way `more` is within one.
+      // "QUEUE", never "inbox" — CONTEXT.md's Attention item entry rules that
+      // word out deliberately, and this key is exactly that concept's face.
+      return countView("QUEUE", face);
+    case "overflow":
+      // The paired Mini's overflow count (`-4w7`), moved off the XL strip.
+      return { label: "OVERFLOW", count: face.count };
   }
+}
+
+/** The shared shape of a count key: `more` within one channel, `queue` across all of them. */
+function countView(idleLabel: string, face: { count: number; attention?: AttentionReason }): Parameters<typeof keySvg>[0] {
+  return {
+    label: face.attention ? ATTENTION_WORDS[face.attention] : idleLabel,
+    count: face.count,
+    ...(face.attention ? { attention: true } : {}),
+    ...(face.attention === "exited" ? { danger: true } : {})
+  };
 }
 
 /**

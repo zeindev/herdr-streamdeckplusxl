@@ -7,6 +7,7 @@ import {
   attentionOf,
   keepAcknowledged,
   sameAcknowledged,
+  worstAttentionItem,
   type Acknowledged
 } from "./attention.js";
 import {
@@ -24,7 +25,7 @@ import {
   type ControlOutcome
 } from "./control.js";
 import { sameKey, type Command, type DeviceEvent, type DeviceInfo, type KeyAddress } from "./events.js";
-import { channelOfColumn, columnInChannel, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
+import { channelOfColumn, columnInChannel, layoutForDeviceType, type DeviceLayout, type Rig } from "./geometry.js";
 import { agentPaneOf, channelRows, mostUrgentPaneOf, type PaneCell } from "./panes.js";
 import {
   commandKeyOf,
@@ -54,6 +55,13 @@ export const RESYNC_DEBOUNCE_MS = 120;
  * position means, and neither may happen by brushing a key.
  */
 export const HOLD_MS = 1200;
+
+/**
+ * How many panes `recentFocus` remembers, well past the two the Mini's paired
+ * surface shows. The headroom is so a pane closing does not immediately
+ * empty a key that had something to show a moment ago.
+ */
+const RECENT_FOCUS_LIMIT = 6;
 
 /**
  * `offline` — no connection. `syncing` — connected, but the snapshot has not
@@ -87,6 +95,14 @@ export type State = {
   acknowledged: Acknowledged;
   /** Keys currently held, with when the hold began. */
   pressed: PressedKey[];
+  /**
+   * Panes the developer has jumped to lately, most recent first, deduped.
+   * Feeds the Mini's paired global surface (`-4w7`), which has room to show
+   * two. Ephemeral rather than durable — like `pressed` and `armed`, it is a
+   * live convenience rather than geography, so it starts empty on every
+   * restart instead of surviving one the way `slots` and `roles` do.
+   */
+  recentFocus: readonly string[];
   /** When a structural change was first seen, or null when nothing is pending. */
   resyncRequestedAt: number | null;
   /** The one actions key currently armed for a destructive interrupt, if any. */
@@ -112,6 +128,7 @@ export function initialState(): State {
     roles: {},
     acknowledged: [],
     pressed: [],
+    recentFocus: [],
     resyncRequestedAt: null,
     armed: null,
     controlAcknowledgements: []
@@ -181,6 +198,8 @@ export function reduce(state: State, event: DeviceEvent): Step {
           processes: keepKnownPanes(state.processes, snapshot),
           slots,
           acknowledged,
+          // A pane that is gone can never be jumped back to.
+          recentFocus: keepKnownRecent(state.recentFocus, snapshot),
           resyncRequestedAt: null
         },
         commands: [
@@ -304,8 +323,9 @@ export function reduce(state: State, event: DeviceEvent): Step {
         const acknowledged = acknowledges(cell.pane, state.snapshot)
           ? acknowledge(state.acknowledged, cell.pane.pane_id)
           : state.acknowledged;
+        const recentFocus = withRecentFocus(state.recentFocus, cell.pane.pane_id);
         return {
-          state: { ...state, pressed, acknowledged },
+          state: { ...state, pressed, acknowledged, recentFocus },
           commands: [
             { kind: "herdr-request", method: "pane.focus", params: { pane_id: cell.pane.pane_id } },
             ...savedIfAcknowledgedChanged(state.acknowledged, acknowledged)
@@ -554,14 +574,20 @@ function cellAt(state: State, key: KeyAddress): PaneCell | null {
 }
 
 /**
- * The Mini's bottom-row key: its channel's most urgent pane, resolved the
- * same way `surfaceOf` resolves it (`mostUrgentPaneOf`), so a tap can never
- * focus a different pane than the one the key is actually showing. The top
- * row names the workstream, not a pane, so nothing resolves there — `-vk6`
- * only asks that a bottom-row tap focus a pane, and the top row has none to
- * offer.
+ * What sits on a Mini key. Standalone, it mirrors a channel (`-vk6`); paired
+ * with an XL, it is the global surface instead (`-4w7`) — the rig decides
+ * which, and only the rig, so the same physical key resolves differently
+ * the instant a second device attaches or leaves, with nothing to restart.
  */
 function miniCellAt(state: State, layout: DeviceLayout, key: KeyAddress): PaneCell | null {
+  if (rigOf(state) === "paired") return globalCellAt(state, key);
+
+  // The Mini's bottom-row key: its channel's most urgent pane, resolved the
+  // same way `surfaceOf` resolves it (`mostUrgentPaneOf`), so a tap can never
+  // focus a different pane than the one the key is actually showing. The top
+  // row names the workstream, not a pane, so nothing resolves there — `-vk6`
+  // only asks that a bottom-row tap focus a pane, and the top row has none to
+  // offer.
   if (key.row !== 1) return null;
   const channel = channelOfColumn(layout, key.column);
   const workstream = channelWorkstreams(state.slots, presentWorkstreams(state))[channel];
@@ -569,7 +595,73 @@ function miniCellAt(state: State, layout: DeviceLayout, key: KeyAddress): PaneCe
   const panes = state.snapshot?.panes ?? [];
   const attention = attentionByPane(attentionOf(state.snapshot, state.acknowledged));
   const pane = mostUrgentPaneOf(workstream, panes, attention);
+  return paneCellOf(state, pane?.pane_id);
+}
+
+/**
+ * The rig currently connected (CONTEXT.md), derived from the devices the
+ * plugin has seen `device-attached`/`device-detached` events for. Nothing
+ * else may decide this — the Mini's surface and the XL strip's overflow
+ * digit both have to agree about which rig they are in, or attaching a
+ * second device could make one of them lie.
+ */
+export function rigOf(state: State): Rig {
+  const hasXL = state.devices.some((device) => layoutForDeviceType(device.type)?.kind === "xl");
+  const hasMini = state.devices.some((device) => layoutForDeviceType(device.type)?.kind === "mini");
+  if (hasXL && hasMini) return "paired";
+  return hasMini ? "mini-only" : "xl-only";
+}
+
+/**
+ * Where the paired Mini's six keys resolve to a pane, row-major like every
+ * other key address on this device: row 0 is the attention queue's single
+ * most urgent item, then the two most recently focused panes. Row 1 —
+ * overflow, worktree creation, settings — has no pane behind it, so a tap
+ * there resolves to nothing, the same way an XL control key does.
+ */
+function globalCellAt(state: State, key: KeyAddress): PaneCell | null {
+  if (key.row !== 0) return null;
+  if (key.column === 0) return queuePaneOf(state);
+  if (key.column === 1) return recentPaneOf(state, 0);
+  if (key.column === 2) return recentPaneOf(state, 1);
+  return null;
+}
+
+/**
+ * The pane behind the paired Mini's queue key: the single most urgent
+ * attention item across every workstream (`worstAttentionItem`), resolved to
+ * its pane. Shared between the reducer and the projection, the same way
+ * `channelRowsOf` is, so a tap can never jump to a different pane than the
+ * key showed. An item with no pane — a dead service whose pane went with it
+ * — leaves the key with nothing to jump to, same as the `more` key already
+ * does for a hidden pane-less exit.
+ */
+export function queuePaneOf(state: State): PaneCell | null {
+  const worst = worstAttentionItem(attentionOf(state.snapshot, state.acknowledged));
+  return worst?.paneId ? paneCellOf(state, worst.paneId) : null;
+}
+
+/** One of the paired Mini's two recently focused panes (`recentFocus`), most recent at slot 0. */
+export function recentPaneOf(state: State, slot: number): PaneCell | null {
+  return paneCellOf(state, state.recentFocus[slot]);
+}
+
+function paneCellOf(state: State, paneId: string | undefined): PaneCell | null {
+  if (!paneId) return null;
+  const pane = state.snapshot?.panes.find((candidate) => candidate.pane_id === paneId);
   return pane ? { kind: "pane", pane, role: roleResolver(state.processes, state.roles)(pane) } : null;
+}
+
+/** Remembers a newly focused pane at the front, deduped and capped. */
+function withRecentFocus(recentFocus: readonly string[], paneId: string): readonly string[] {
+  return [paneId, ...recentFocus.filter((candidate) => candidate !== paneId)].slice(0, RECENT_FOCUS_LIMIT);
+}
+
+/** Drops panes from `recentFocus` that no longer exist. */
+function keepKnownRecent(recentFocus: readonly string[], snapshot: HerdrSnapshot): readonly string[] {
+  const live = new Set(snapshot.panes.map((pane) => pane.pane_id));
+  const kept = recentFocus.filter((paneId) => live.has(paneId));
+  return kept.length === recentFocus.length ? recentFocus : kept;
 }
 
 /**

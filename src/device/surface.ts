@@ -1,12 +1,20 @@
 import type { AgentStatus, PaneSnapshot } from "../model.js";
-import { REASON_ORDER, attentionByPane, attentionIn, attentionOf, type AttentionItem, type AttentionReason } from "./attention.js";
+import {
+  REASON_ORDER,
+  attentionByPane,
+  attentionIn,
+  attentionOf,
+  worstAttentionItem,
+  type AttentionItem,
+  type AttentionReason
+} from "./attention.js";
 import { ACTIONS_COLUMN, FOCUS_COLUMN, GIT_COLUMN, acknowledgementFor } from "./control.js";
 import { CHANNEL_COUNT, channelKeyIndex, keyCount, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
 import { channelAgentStatus, mostUrgentPaneOf, paneKeyLabel, type PaneCell } from "./panes.js";
 import { roleResolver } from "./role.js";
 import type { PaneProcesses, Role } from "./role.js";
 import { channelWorkstreams, overflowOf } from "./slots.js";
-import { channelRowsOf, type State } from "./state.js";
+import { channelRowsOf, queuePaneOf, recentPaneOf, rigOf, type State } from "./state.js";
 import { OVERFLOW_CELLS, stripBlockOf, type StripBlock } from "./strip.js";
 import { workstreamIdentity, workstreamsOf, type Workstream } from "./workstream.js";
 
@@ -61,7 +69,21 @@ export type KeyFace =
    * pick `more` makes, over everything asking anywhere in the workstream
    * rather than only what one row hides.
    */
-  | { kind: "workstream"; label: string; status?: AgentStatus; attention?: AttentionReason };
+  | { kind: "workstream"; label: string; status?: AgentStatus; attention?: AttentionReason }
+  /**
+   * The paired Mini's queue key (ADR-0008, `-4w7`) — the count of everything
+   * asking across every workstream, marked with the worst reason present the
+   * same way a `more` key marks a hidden pane. Tapping it jumps to whichever
+   * pane `worstAttentionItem` names; a global count needs its own kind rather
+   * than reusing `more`, since nothing here is a row's overflow.
+   */
+  | { kind: "queue"; count: number; attention?: AttentionReason }
+  /**
+   * The paired Mini's overflow key (ADR-0008, `-4w7`, ADR-0009, ADR-0011) —
+   * the same count the XL's rightmost strip region shows on an XL-only rig,
+   * moved here once a Mini is attached so it is never shown in both places.
+   */
+  | { kind: "overflow"; count: number };
 
 /**
  * An encoder and the touch-strip region above it are one control on the
@@ -116,6 +138,10 @@ export function surfaceOf(state: State): Surface {
   // the strip must agree about what is asking, or a key would show something the
   // count beside it did not include.
   const attention = attentionOf(state.snapshot, state.acknowledged);
+  // The rig, not the device loop, decides where the overflow count lives
+  // (ADR-0008, ADR-0009, ADR-0011, `-4w7`): once a Mini is attached it moves
+  // there, so the XL's own strip must stop repeating it.
+  const paired = rigOf(state) === "paired";
   const devices: DeviceSurface[] = [];
   for (const device of state.devices) {
     const layout = layoutForDeviceType(device.type);
@@ -123,15 +149,21 @@ export function surfaceOf(state: State): Surface {
     devices.push({
       deviceId: device.id,
       layout: layout.kind,
-      keys: keysOf(state, layout, workstreams, attention),
-      encoders: encodersOf(layout, workstreams, panes, overflow, noticeFor(state), attention)
+      keys: keysOf(state, layout, workstreams, attention, overflow),
+      encoders: encodersOf(layout, workstreams, panes, paired ? 0 : overflow, noticeFor(state), attention)
     });
   }
   return { devices };
 }
 
-function keysOf(state: State, layout: DeviceLayout, workstreams: ReadonlyArray<Workstream | null>, attention: readonly AttentionItem[]): KeyFace[] {
-  if (layout.kind === "mini") return miniKeysOf(state, layout, workstreams, attention);
+function keysOf(
+  state: State,
+  layout: DeviceLayout,
+  workstreams: ReadonlyArray<Workstream | null>,
+  attention: readonly AttentionItem[],
+  overflow: number
+): KeyFace[] {
+  if (layout.kind === "mini") return miniKeysOf(state, layout, workstreams, attention, overflow);
 
   const attentionByPaneId = attentionByPane(attention);
   const keys = Array.from({ length: keyCount(layout) }, () => BLANK);
@@ -169,7 +201,15 @@ function keysOf(state: State, layout: DeviceLayout, workstreams: ReadonlyArray<W
  * the pane-keyed form `mostUrgentPaneOf` and `paneFace` both expect — so
  * both shapes are derived here, once, from the one list passed in.
  */
-function miniKeysOf(state: State, layout: DeviceLayout, workstreams: ReadonlyArray<Workstream | null>, attention: readonly AttentionItem[]): KeyFace[] {
+function miniKeysOf(
+  state: State,
+  layout: DeviceLayout,
+  workstreams: ReadonlyArray<Workstream | null>,
+  attention: readonly AttentionItem[],
+  overflow: number
+): KeyFace[] {
+  if (rigOf(state) === "paired") return globalKeysOf(state, layout, attention, overflow);
+
   const attentionByPaneId = attentionByPane(attention);
   const keys = Array.from({ length: keyCount(layout) }, () => BLANK);
   const panes = state.snapshot?.panes ?? [];
@@ -189,6 +229,34 @@ function miniKeysOf(state: State, layout: DeviceLayout, workstreams: ReadonlyArr
     }
   }
   return keys;
+}
+
+/**
+ * The paired Mini's global surface (ADR-0008, `-4w7`): row 0 is the
+ * cross-workstream attention queue and the two most recently focused panes;
+ * row 1 is the overflow count and the two features still unclaimed scope —
+ * worktree creation and settings say so rather than pretending to be
+ * shortcuts they are not, the same honesty `-wl7` already put on the XL's
+ * git/pull-request key. `globalCellAt` in `state.ts` resolves the same three
+ * pane keys the same way, so a tap can never jump to a different pane than
+ * what is drawn here.
+ */
+function globalKeysOf(state: State, layout: DeviceLayout, attention: readonly AttentionItem[], overflow: number): KeyFace[] {
+  const attentionByPaneId = attentionByPane(attention);
+  const keys = Array.from({ length: keyCount(layout) }, () => BLANK);
+
+  const worst = worstAttentionItem(attention);
+  keys[layout.columns * 0 + 0] = { kind: "queue", count: attention.length, ...(worst ? { attention: worst.reason } : {}) };
+  keys[layout.columns * 0 + 1] = recentFace(recentPaneOf(state, 0), state.processes, attentionByPaneId);
+  keys[layout.columns * 0 + 2] = recentFace(recentPaneOf(state, 1), state.processes, attentionByPaneId);
+  keys[layout.columns * 1 + 0] = { kind: "overflow", count: overflow };
+  keys[layout.columns * 1 + 1] = { kind: "text", label: "NEW WORKTREE" };
+  keys[layout.columns * 1 + 2] = { kind: "text", label: "SETTINGS" };
+  return keys;
+}
+
+function recentFace(cell: PaneCell | null, processes: PaneProcesses, attention: ReadonlyMap<string, AttentionReason>): KeyFace {
+  return cell ? paneFace(cell, processes, attention) : BLANK;
 }
 
 /**

@@ -1173,3 +1173,123 @@ test("a Mini's bottom-row press follows the channel's own workstream, not a fixe
   const { commands } = tapKey(live, miniKeyAt(1, 1));
   assert.deepEqual(commands, [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: "w2:b" } }]);
 });
+
+/**
+ * The Mini, paired with an XL (ADR-0008, `-4w7`): no longer a mirror, but
+ * the global surface — attention queue, recent panes, overflow, and the two
+ * features still unclaimed scope. What belongs here is what a press on it
+ * does; the surface-level shape is covered in surface.test.mjs.
+ */
+
+function liveWithPaired(workspaces, panes) {
+  return run([xl, mini, { kind: "herdr-connection", connected: true }, snapshotOf({ workspaces, panes })]);
+}
+
+/** A paired Mini's own key, addressed row-major like every other device — unlike the mirror, row is not per-channel here. */
+const globalKeyAt = (row, column) => ({ deviceId: "mini-1", column, row });
+
+test("tapping the paired Mini's queue key jumps to the most urgent item across every workstream", () => {
+  const live = liveWithPaired(
+    [workspaceOn(1, "auth"), workspaceOn(2, "billing")],
+    [
+      paneOn("w1", "a", { agent: "claude", agent_status: "idle" }),
+      paneOn("w2", "b", { agent: "claude", agent_status: "blocked" })
+    ]
+  ).state;
+
+  const { commands } = tapKey(live, globalKeyAt(0, 0));
+  assert.deepEqual(commands, [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: "w2:b" } }]);
+});
+
+test("tapping the paired Mini's queue key acknowledges finished work the same way any other pane tap does", () => {
+  const live = liveWithPaired([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude", agent_status: "done" })]).state;
+  const { state } = tapKey(live, globalKeyAt(0, 0));
+  assert.deepEqual(state.acknowledged, ["w1:a"]);
+});
+
+test("the paired Mini's queue key resolves to nothing when the worst item names no pane", () => {
+  const withDeadService = { ...workspaceOn(1, "auth"), tokens: { sd_exit_dev: "1" } };
+  const live = liveWithPaired([withDeadService], []).state;
+  const { commands } = tapKey(live, globalKeyAt(0, 0));
+  assert.deepEqual(commands, []);
+});
+
+test("tapping one of the paired Mini's recent-pane keys jumps to that pane", () => {
+  const live = liveWithPaired([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude" })]).state;
+  const focused = tapKey(live, keyAt(0, 0, 0)).state;
+  assert.deepEqual(focused.recentFocus, ["w1:a"]);
+
+  const { commands } = tapKey(focused, globalKeyAt(0, 1));
+  assert.deepEqual(commands, [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: "w1:a" } }]);
+});
+
+test("the paired Mini's overflow, new-worktree, and settings keys ask Herdr for nothing", () => {
+  const live = liveWithPaired([workspaceOn(1, "auth")], []).state;
+  for (const key of [globalKeyAt(1, 0), globalKeyAt(1, 1), globalKeyAt(1, 2)]) {
+    const { commands } = tapKey(live, key);
+    assert.deepEqual(commands, [], `row 1, column ${key.column} has no pane behind it`);
+  }
+});
+
+test("a tap on any pane key remembers it as recently focused, most recent first", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude" }), paneOn("w1", "b")]).state;
+
+  const afterA = tapKey(live, keyAt(0, 0, 0)).state;
+  assert.deepEqual(afterA.recentFocus, ["w1:a"]);
+
+  const afterB = tapKey(afterA, keyAt(0, 0, 2)).state;
+  assert.deepEqual(afterB.recentFocus, ["w1:b", "w1:a"]);
+
+  // Tapping a pane already remembered moves it to the front rather than
+  // duplicating it, so the two keys never show the same pane twice.
+  const again = tapKey(afterB, keyAt(0, 0, 0)).state;
+  assert.deepEqual(again.recentFocus, ["w1:a", "w1:b"]);
+});
+
+test("recentFocus forgets a pane once it is gone", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude" })]).state;
+  const focused = tapKey(live, keyAt(0, 0, 0)).state;
+  assert.deepEqual(focused.recentFocus, ["w1:a"]);
+
+  const gone = run([snapshotOf({ workspaces: [workspaceOn(1, "auth")], panes: [] })], focused).state;
+  assert.deepEqual(gone.recentFocus, []);
+});
+
+test("attaching an XL to a Mini mid-session turns its bottom-row mirror key into the global surface live, with no restart", () => {
+  const mirroring = liveWithMini([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude", agent_status: "blocked" })]).state;
+  const beforePairing = tapKey(mirroring, miniKeyAt(0, 1));
+  assert.deepEqual(beforePairing.commands, [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: "w1:a" } }]);
+
+  const paired = run([xl], mirroring).state;
+  // The same physical key — column 0, row 1 — now resolves to nothing: row 1
+  // is the global surface's overflow row on a paired rig, not a channel mirror.
+  const afterPairing = tapKey(paired, miniKeyAt(0, 1));
+  assert.deepEqual(afterPairing.commands, []);
+});
+
+test("attaching a Mini to an XL-only rig turns it into the global surface immediately, live", () => {
+  const xlOnly = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude", agent_status: "blocked" })]).state;
+  const paired = run([mini], xlOnly).state;
+
+  const { commands } = tapKey(paired, globalKeyAt(0, 0));
+  assert.deepEqual(commands, [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: "w1:a" } }]);
+});
+
+test("detaching the XL from a paired rig returns the Mini to mirroring its channels, live", () => {
+  const paired = liveWithPaired([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude", agent_status: "blocked" })]).state;
+  const detached = run([{ kind: "device-detached", deviceId: "xl-1" }], paired).state;
+
+  const { commands } = tapKey(detached, miniKeyAt(0, 1));
+  assert.deepEqual(commands, [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: "w1:a" } }]);
+});
+
+test("detaching the Mini from a paired rig leaves the XL an XL-only rig, with its own keys untouched", () => {
+  const paired = liveWithPaired([workspaceOn(1, "auth")], [paneOn("w1", "a", { agent: "claude", agent_status: "blocked" })]).state;
+  const xlOnly = run([{ kind: "device-detached", deviceId: "mini-1" }], paired).state;
+
+  assert.deepEqual(xlOnly.devices, [{ id: "xl-1", type: DEVICE_TYPE_XL }]);
+  // The XL's own key never depended on the Mini being there to begin with —
+  // tapping it still focuses the same pane it always did.
+  const { commands } = tapKey(xlOnly, keyAt(0, 0, 0));
+  assert.deepEqual(commands, [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: "w1:a" } }]);
+});

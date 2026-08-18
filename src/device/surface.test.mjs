@@ -798,3 +798,112 @@ test("the Mini's redraw is scoped to the channel that changed, the same as the X
     "only auth's own two keys redraw; billing's channel is untouched, and there are no encoders to redraw at all"
   );
 });
+
+/**
+ * The Mini, paired with an XL (ADR-0008, `-4w7`): the global surface rather
+ * than a mirror of any one channel. Row 0 is the attention queue and the two
+ * most recently focused panes; row 1 is the overflow count and the two
+ * features still unclaimed scope.
+ */
+
+const attachBoth = [attachXl, attachMini];
+
+function pairedLiveState({ workspaces = [], panes = [] } = {}) {
+  return run([
+    ...attachBoth,
+    { kind: "herdr-connection", connected: true },
+    { kind: "herdr-snapshot", snapshot: { workspaces, panes, tabs: [] } }
+  ]);
+}
+
+test("the paired Mini renders the global surface rather than mirroring a channel", () => {
+  const [, mini] = surfaceOf(pairedLiveState({ workspaces: [workspaceOn(1, "auth")] })).devices;
+  assert.equal(mini.layout, "mini");
+  assert.equal(mini.keys[0].kind, "queue", "row 0 is the attention queue, not a workstream's identity");
+  assert.equal(mini.keys[3].kind, "overflow", "row 1 is the overflow count, not a channel's most urgent pane");
+});
+
+test("the paired Mini's queue key counts and marks everything asking, across every workstream", () => {
+  const [, mini] = surfaceOf(
+    pairedLiveState({
+      workspaces: [workspaceOn(1, "auth"), workspaceOn(2, "billing")],
+      panes: [
+        paneOn("w1", "a", { agent: "claude", agent_status: "done" }),
+        paneOn("w2", "b", { agent: "claude", agent_status: "blocked" })
+      ]
+    })
+  ).devices;
+
+  assert.deepEqual(mini.keys[0], { kind: "queue", count: 2, attention: "waiting" });
+});
+
+test("the paired Mini's queue key stays quiet when nothing anywhere is asking", () => {
+  const [, mini] = surfaceOf(pairedLiveState({ workspaces: [workspaceOn(1, "auth")] })).devices;
+  assert.deepEqual(mini.keys[0], { kind: "queue", count: 0 });
+});
+
+test("the paired Mini's recent-pane keys show the two most recently focused panes", () => {
+  const live = pairedLiveState({
+    workspaces: [workspaceOn(1, "auth")],
+    panes: [paneOn("w1", "a", { agent: "claude", label: "one" }), paneOn("w1", "b", { agent: "claude", label: "two" })]
+  });
+  const agentKey = { deviceId: "xl-1", column: 0, row: 0 };
+  const focusedA = run([{ kind: "key-down", key: agentKey, at: 100 }, { kind: "key-up", key: agentKey, at: 101 }], live);
+
+  const [, mini] = surfaceOf(focusedA).devices;
+  assert.equal(mini.keys[1].kind, "pane");
+  assert.equal(mini.keys[1].label, "one");
+  assert.deepEqual(mini.keys[2], BLANK, "nothing has been focused for the second recent key yet");
+});
+
+test("worktree creation and settings are honest placeholders on the paired Mini, unclaimed scope like the git key was", () => {
+  const [, mini] = surfaceOf(pairedLiveState({ workspaces: [workspaceOn(1, "auth")] })).devices;
+  assert.deepEqual(mini.keys[4], { kind: "text", label: "NEW WORKTREE" });
+  assert.deepEqual(mini.keys[5], { kind: "text", label: "SETTINGS" });
+});
+
+test("the overflow count moves from the XL's strip to the paired Mini's overflow key", () => {
+  const workspaces = [workspaceOn(1, "a"), workspaceOn(2, "b"), workspaceOn(3, "c"), workspaceOn(4, "d")];
+  const [xl, mini] = surfaceOf(pairedLiveState({ workspaces })).devices;
+
+  assert.equal(xl.encoders[xl.encoders.length - 1].overflow, 0, "the XL strip goes quiet once the Mini carries the count");
+  assert.deepEqual(mini.keys[3], { kind: "overflow", count: 1 });
+});
+
+test("detaching the Mini returns the overflow count to the XL's rightmost strip region", () => {
+  const workspaces = [workspaceOn(1, "a"), workspaceOn(2, "b"), workspaceOn(3, "c"), workspaceOn(4, "d")];
+  const paired = pairedLiveState({ workspaces });
+  const xlOnly = run([{ kind: "device-detached", deviceId: "mini-1" }], paired);
+
+  const [xl] = surfaceOf(xlOnly).devices;
+  assert.equal(xl.encoders[xl.encoders.length - 1].overflow, 1);
+});
+
+test("the XL's key layout is unaffected by whether a Mini is attached", () => {
+  const workspaces = [workspaceOn(1, "auth")];
+  const panes = [paneOn("w1", "a", { agent: "claude", agent_status: "blocked" })];
+  const [xlAlone] = surfaceOf(liveState({ workspaces, panes })).devices;
+  const [xlPaired] = surfaceOf(pairedLiveState({ workspaces, panes })).devices;
+
+  assert.deepEqual(xlPaired.keys, xlAlone.keys);
+  assert.deepEqual(xlPaired.encoders, xlAlone.encoders, "no overflow is in play here, so the two strips agree too");
+});
+
+test("the XL's key grid stays byte-for-byte identical even with overflow in play — only the strip's overflow digit moves", () => {
+  // "Byte-for-byte identical" (the acceptance criterion) is about the XL's
+  // geometry and its keys, which never read anything about the rig at all —
+  // `keysOf`'s XL branch takes no rig-dependent input. The strip is not held
+  // to the same claim: ADR-0009 already had the last region give up reading
+  // space to reserve room for a nonzero overflow count, before this ticket
+  // existed, and now that reservation depends on which rail is showing the
+  // count — so the strip's *content* legitimately differs, while the keys,
+  // and the fact that there are still six encoder regions, do not.
+  const workspaces = [workspaceOn(1, "a"), workspaceOn(2, "b"), workspaceOn(3, "c"), workspaceOn(4, "d")];
+  const [xlAlone] = surfaceOf(liveState({ workspaces })).devices;
+  const [xlPaired] = surfaceOf(pairedLiveState({ workspaces })).devices;
+
+  assert.deepEqual(xlPaired.keys, xlAlone.keys);
+  assert.equal(xlAlone.encoders.length, xlPaired.encoders.length);
+  assert.equal(xlAlone.encoders[xlAlone.encoders.length - 1].overflow, 1, "unpaired, the XL strip carries the real count");
+  assert.equal(xlPaired.encoders[xlPaired.encoders.length - 1].overflow, 0, "paired, the Mini carries it instead");
+});

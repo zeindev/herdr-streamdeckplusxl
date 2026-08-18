@@ -8,6 +8,14 @@ export const DEVICE_TYPE_XL = 13;
 /** Elgato `DeviceType` for the Stream Deck Mini. */
 export const DEVICE_TYPE_MINI = 1;
 
+/**
+ * The set of Stream Deck devices currently connected (`Rig` in CONTEXT.md).
+ * Decides which layout the Mini draws: mirroring channels alone, or the
+ * global surface once an XL is also attached (ADR-0008, `-4w7`). The XL's own
+ * layout never depends on this — only the Mini's does.
+ */
+export type Rig = "xl-only" | "mini-only" | "paired";
+
 export type DeviceLayout = {
   kind: "xl" | "mini";
   columns: number;

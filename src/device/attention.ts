@@ -269,6 +269,23 @@ function isCleanExit(status: string): boolean {
  */
 export const REASON_ORDER: readonly AttentionReason[] = ["waiting", "question", "approval", "exited", "finished"];
 
+/**
+ * The single most urgent item across every workstream, by `REASON_ORDER`.
+ *
+ * The Mini's paired queue key (`-4w7`) has room for one item, not a list, so
+ * "reachable" means jumping straight to whichever thing is worst — the same
+ * ranking `worstOf` already applies within one channel, applied here across
+ * all of them at once. Ties within a reason keep `attentionOf`'s own sort,
+ * so the choice never depends on Herdr's listing order.
+ */
+export function worstAttentionItem(items: readonly AttentionItem[]): AttentionItem | undefined {
+  for (const reason of REASON_ORDER) {
+    const found = items.find((item) => item.reason === reason);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 function byWorkspaceThenReasonThenName(left: AttentionItem, right: AttentionItem): number {
   if (left.workspaceId !== right.workspaceId) return left.workspaceId.localeCompare(right.workspaceId);
   const byReason = REASON_ORDER.indexOf(left.reason) - REASON_ORDER.indexOf(right.reason);

@@ -1,4 +1,4 @@
-# Herdr Stream Deck+
+# Herdr Stream Deck
 
 <!-- impeccable:product-schema 1 -->
 
@@ -8,145 +8,95 @@ adaptive
 
 ## Stack
 
-- Stream Deck plugin: TypeScript with Elgato's official Node SDK.
-- Herdr capabilities: stock Herdr plugin and CLI APIs only; Herdr core remains out of scope.
-- Validate and ship Windows first. Preserve macOS and Linux as intended future targets.
+- Stream Deck plugin: TypeScript with Elgato's official Node SDK, driving the socket connection directly (no CLI subprocess in the hot path).
+- A separate Herdr plugin process, started and supervised by Herdr itself, owns slow external enrichment — ticket keys and pull-request state derived from Git and GitHub — and publishes it back as workspace tokens the Stream Deck plugin reads. The two never talk directly; Herdr's own state is the interface.
+- Herdr capabilities: stock Herdr socket API, CLI, and Herdr-plugin hooks only; Herdr core remains out of scope, except where a decision is explicitly recorded as needing a Herdr core change (see Open decisions).
+- The official Stream Deck app supports macOS and Windows; Linux runs through the third-party OpenDeck app and is experimental. Which platform to validate and ship first is not decided here (see Open decisions). The Herdr-plugin half (enrichment scripts) is plain Node and platform-independent regardless.
 
 ## Users
 
-Technically fluent developers and operators who supervise several coding-agent threads in Herdr while actively working elsewhere on their computer. The primary usage is fast, one-handed triage without navigating a second software interface.
+Technically fluent developers who run several coding-agent workstreams in Herdr at once and work elsewhere on their computer the rest of the time. The primary usage is fast, one-handed triage across every workstream without switching into a second software interface.
 
 ## Product Purpose
 
-Herdr Stream Deck+ is a physical triage and control panel for Herdr. It keeps important threads physically reachable, shows actionable state at a glance, brings the right thread forward on demand, and handles structured questions safely from the device.
+Herdr Stream Deck is a physical instrument for running several development workstreams in parallel. It keeps every active workstream permanently visible with its own identity and state, shows what is asking for the developer without inference or guessing, brings any pane forward on demand, and lets the developer send a workstream's frequent verbs — and the rarer worktree lifecycle ones — without opening Herdr's own window.
 
-Success means the user can notice, select, inspect, and resolve routine agent attention without hunting through Herdr, while detailed work remains in Herdr itself.
+Success means the developer can tell at a glance which of their workstreams needs them, jump to any pane in any of them, and act on the common cases (focus, continue an agent, stop one, create or remove a worktree) from the device — while anything the device cannot express safely stays in Herdr itself, on purpose.
 
 ## Positioning
 
-This is not a miniature Herdr UI or a generic macro pad. Its distinct mechanism combines user-arranged physical thread slots, an actionable attention queue, state-aware controls, and structured agent questions on the Stream Deck+ touch strip.
+This is not a miniature Herdr UI or a generic macro pad. Its distinct mechanism is three workstreams shown simultaneously as three physical channels, one per workstream, each organizing its panes by role rather than by open order, with attention declared by whoever actually knows (an agent, a hook, a supervised service) rather than inferred from terminal text.
 
 ## Operating Context
 
-- The primary surface is an Elgato Stream Deck+ with eight LCD keys, four dials, and an 800 x 100 touch strip composed of four coordinated 200 x 100 encoder regions.
-- The fixed key rows are `1 2 3 INBOX` and `4 5 6 ACTIONS`.
-- The user normally operates it with one hand while Herdr is open in the background.
-- The Herdr client may be foreground, background, or closed. Device actions may focus an existing client but never launch one implicitly.
-- A bundled Stream Deck+ profile owns all four encoder positions so Question Mode can appear as one coordinated strip.
+- The product targets two devices: the **Stream Deck + XL** (36 keys in a 9×4 grid, a continuous 1200×100 touch strip of six 200px regions, and 6 rotary encoders) and the **Stream Deck Mini** (6 keys in a 3×2 grid, no dials, no strip). The **rig** — which of the two, or both, are attached — decides the layout, and can change while the plugin is running. The Stream Deck+ (the four-dial, eight-key device the product previously targeted) is not supported.
+- The XL always shows the same three-channel layout, with or without a Mini attached — attaching or detaching one never reflows it. A Mini attached alone mirrors those same three channels at a glance. A Mini attached alongside an XL instead becomes the **global surface**: the cross-workstream attention queue, recently focused panes, the overflow count, and (not yet wired to a verb — see Open decisions) worktree creation and settings. A Mini-only rig reaches those same things through each channel's own controls instead, since it has nowhere else to put them.
+- The user normally operates the device one-handed while Herdr runs in the background, foreground, or is closed. Device actions may focus an existing Herdr client but never launch one implicitly.
+- Two bundled Stream Deck profiles, one per device, install themselves automatically; there is no manual profile setup.
 - Runtime distribution remains undecided. GitHub/manual installation, Herdr distribution, and Elgato Marketplace submission are separate decisions.
 
 ## Capabilities and Constraints
 
 ### Interaction vocabulary
 
-- **Pinned:** stored in a physical slot on a named page.
-- **Previewed:** selected on the device without changing Herdr state.
-- **Focused:** selected inside Herdr.
-- **Action target:** the focused thread frozen when Actions Mode opens.
-- **Attention item:** a structured question or approval, explicit error, or unseen completion that needs human action.
+The full vocabulary — workstream, repository, worktree, ticket, pull request, workspace, pane, agent, service, token, slot, channel, control row, rig, role, global surface, overflow, attention item, acknowledged — is defined once, in `CONTEXT.md`, and this document uses it exactly as defined there rather than redefining it. Two more describe *interaction* rather than structure, and are defined here because CONTEXT.md does not carry them:
 
-### Pin pages and six thread keys
+- **Browsing / committed:** turning a dial previews without touching Herdr. Pushing it commits — focuses a pane, sends a verb, or arms one that needs a second push to actually happen. Nothing on this device mutates Herdr on a turn alone.
+- **Armed:** a destructive verb (interrupting an agent, removing a worktree) needs a push to arm it and a second, confirming push within a few seconds to commit it. An arm reverts on its own if left alone, and any other physical action cancels it early.
 
-- Pages grow on demand without a fixed limit. Dial 1 exposes used pages plus exactly one empty next page; another page appears only after that page receives a pin.
-- Turning dial 1 immediately switches the active `Page N` and redraws the six thread keys.
-- Stream Deck settings are the primary page manager for create, rename, reorder, and delete.
-- Releasing a short pinned-key press focuses its thread once without stealing operating-system focus. Key-down only starts gesture tracking; a hold never focuses or selects the thread.
-- A global `Show FOCUSED flash` setting controls the brief full-key acknowledgement and defaults off.
-- Tapping an empty slot pins Herdr's focused thread and immediately renders that thread without an intermediate acknowledgement screen.
-- A second tap raises the existing Herdr client.
-- Holding an occupied slot unpins it and shows a full-key `THREAD UNPINNED` acknowledgement. Holding an empty slot does nothing. Replacement requires unpinning first.
-- Offline pins remain visible. A restarted agent reconnects by exact session, then the same terminal and agent, then one unique exact label for that agent. Ambiguous or different agents stay offline.
-- Herdr should expose `Pin to Stream Deck...` on a thread. It opens a compact page-and-slot map that shows occupied slots and allows direct placement.
-- Both configuration surfaces operate on one shared pin and page model.
+### Three workstream channels, always visible
 
-### Attention queue and Inbox key
+- Each of the XL's three channels is three columns × four rows: the top three rows are that workstream's panes, arranged by role (agent, then server, then a shared row split between tests, logs, and shell) so the same role sits at the same height in every channel; the fourth row is that channel's three fixed control keys.
+- A role with more panes than its row has keys shows the row's last key as a count of what did not fit, rather than hiding a pane silently. Every pane a workstream is running can still be reached — and focused — by rotating that channel's first dial, which browses every pane (and any dead service with no pane at all) in the workstream directly rather than through the row.
+- A workstream keeps its channel for its whole life once assigned; a Herdr restart returns it to the same one. Reassigning a channel is a deliberate hold-the-strip gesture, never automatic, so spatial memory stays trustworthy.
+- A fourth workstream (and beyond) is overflow: counted on the XL's rightmost strip region, or on the Mini once one is attached, never silently dropped and never auto-placed into a channel.
+- An unassigned channel invites a worktree rather than showing nothing.
 
-- The queue contains structured questions or approvals, explicit errors, and unseen completions.
-- Working and ordinary idle threads do not enter the queue.
-- Inbox immediately replaces the full touch strip with the selected attention item and focuses it in the background. Repeated taps or dial 1 turns cycle the queue.
-- Holding Inbox does nothing.
-- Resolved items leave the queue automatically. An empty queue reports `ALL CLEAR` across the strip.
-- Passive arrivals update status but never steal operating-system focus or replace the dashboard.
-- Dial 1 cycles attention items while Inbox is open. Dial 2 owns navigation and action within the selected question.
+### The permanent strip, and what each dial does
 
-### Working motion settings and recent threads
+- Each channel's two touch-strip regions permanently show its branch, its attention count, its ticket count, its pull-request state, and its number of running agents — nothing here is hidden behind a turn. A region with reserved but not-yet-known enrichment shows a real placeholder (`?`), never a blank, so the developer learns where to look before there is anything to see.
+- **Dial 1** rotates through a channel's panes and any paneless dead-service attention, in a stable order, and pushes to focus the selected one — never mutating Herdr while only turning. Once a pane is focused this way, the same dial changes job and scrubs that pane's scrollback instead; pushing again returns it to live output.
+- **Dial 2** rotates a channel's worktree-lifecycle verbs. An empty channel offers creating a worktree in one of the repositories already visible elsewhere on the device; pushing commits immediately, and the new worktree lands in the very channel that asked for it, not just whichever channel happens to be free. A bound channel with a worktree offers removing it; pushing arms the removal, and a second push within the arm window confirms it. Success and failure both acknowledge on the dial that fired them, naming the cause on failure.
+- While either dial is in use, the channel's strip briefly shows what it is doing instead of the permanent readings, and reverts to them once the developer is done or a connection notice needs the space instead.
 
-- Dial 4 Settings owns working speed, motion treatment, width, and intensity.
-- Dial 3 turns through recently focused threads that still exist without changing Herdr focus. Pressing the dial focuses the previewed thread; the preview times out, and a fresh plugin start with no history is a no-op.
-- The working border defaults to the dark swoosh; lightening and rainbow remain available in Settings.
+### The control row
 
-### Structured Question Mode and dial 2
+Every channel's fourth row is the same three verbs, in the same order, whether or not a Mini is attached:
 
-- Question Mode is first-release scope, not a later enhancement.
-- A selected structured interaction coordinates all four touch-strip regions into one question surface.
-- The surface shows the thread, question position, question text, selected option, and option position. It does not show the full transcript.
-- Dial 2 first pages question text one detent at a time. Do not use a marquee.
-- One neutral detent follows the final text page and displays `TURN FOR ANSWERS`; the screen never goes blank.
-- Further turns move one option per detent without wraparound. Reverse turns return through the neutral state to the question pages. Turning never mutates Herdr.
-- Pressing dial 2 without a selected answer raises the existing Herdr client after keeping this thread focused.
-- Pressing dial 2 with a selected answer follows one plugin-wide submission setting: `IMMEDIATE` submits once, while `CONFIRM` locks on the first press and submits the unchanged answer on the second. Turning cancels a lock. `IMMEDIATE` is the initial default.
-- A successful submission acknowledges `SENT`, then advances only after Herdr reports the interaction resolved. A failure keeps the question and selection visible.
-- Submission must include a stable interaction ID. If the interaction changed or resolved, submit nothing and show `QUESTION CHANGED`.
-- Free-form or unsupported interactions show `OPEN HERDR`; the device never guesses an answer from terminal text.
-- Dial 4 remains reserved in Question Mode.
-- Actions cancels Question Mode and returns to the dashboard.
+1. **Focus** — brings the workstream forward in Herdr.
+2. **Git and pull request** — its label is the repository's name; a tap has no verb behind it yet (see Open decisions), and says so honestly rather than pretending to be a shortcut.
+3. **Actions** — a tap sends a fixed, deliberately unambitious prompt ("Continue with your best judgment.") to the workstream's own agent pane. A hold arms the same key for its one destructive act, interrupting that agent; a second, confirming tap within the arm window sends it, and the arm reverts on its own if nothing follows.
 
-### One-shot Actions Mode and Actions key
+### Correcting a wrongly detected role
 
-- Tap Actions to enter Actions Mode. Holding another control simultaneously is never required.
-- Entry freezes the focused thread and identifies it on the touch strip as `ACTIONS FOR` followed by the thread name.
-- One successful action returns automatically to the dashboard. Back cancels.
-- The six thread keys become fixed action positions:
-  1. `CONTINUE`: send a fixed continue-with-best-judgment prompt.
-  2. `STATUS`: request a concise completed, next, and blocked report.
-  3. `VERIFY`: request relevant checks and their result.
-  4. `ZOOM`: toggle the target pane's normal Herdr zoom.
-  5. Blank and inert until real usage identifies a frequent action.
-  6. `STOP`: arm in red for three seconds, then require a second press to send `Ctrl+C` to the target pane.
-- Prompt actions are unavailable while a structured question is active.
-- Prompt actions acknowledge `PROMPT SENT`, Zoom acknowledges `ZOOMED`, and Stop acknowledges `INTERRUPTED`. Failures acknowledge `FAILED` before returning.
-- Failures render a short cause and recovery hint on the affected key or dial; the generic Stream Deck warning triangle is never used.
+A pane's role is worked out from what is actually running in it — never from terminal output — with a developer's own correction always winning. Correcting one wrong detection is one deliberate act: holding the pane's key, wherever an XL is present, opens a picker showing every role at once in the exact position its own row would occupy, and a single tap on any of them commits the correction. That correction is remembered by the pane's command line, so it survives the pane restarting. A Mini-only rig, with nowhere to show five roles at once, keeps the older one-step-per-hold cycling instead — a real, accepted reduction in capability for that rig, not an oversight.
 
-### Status and display language
+### Attention, declared
 
-- Normal display content remains operational and short: the deepest useful pane identity on each key, page or attention context on the full strip, actionable counts, and brief acknowledgements.
-- Question Mode is the only mode that uses the full strip for longer content.
-- Herdr remains the only theme source. Until Herdr exposes its resolved palette, the plugin uses a generated compatibility copy of Herdr's 17 RGB built-in themes plus the saved theme name and custom RGB overrides in Herdr's config.
-- The plugin has no theme settings or manual light/dark override. `npm run themes:sync` refreshes the temporary generated copy from a local Herdr checkout.
-- Saved palette changes redraw every visible key and encoder region. The host-derived `terminal` palette, unsaved previews, and automatic appearance changes require a future resolved-theme API.
-- Every OLED background is fixed deep black. Herdr themes color text, lifecycle outlines, and dial bars; a second inset lifecycle-color ring marks the selected thread while the status border stays in its normal outer position.
-- Foreground colors retain their configured hue and are lifted only when required to meet the black-field contrast floor.
-- Pinned keys show only the deepest available pane or thread label; actionable status may temporarily use the footer. The idle strip shows only `Page N`, the focused thread lifecycle and name, and the fixed right-hand Herdr logo. Page position appears only during page navigation; Inbox owns attention counts. The focused thread always reserves one lifecycle gutter so its LCD name never shifts; working uses the six-circle animation while other states reuse Herdr's blocked, done, idle, and unknown marks. Empty slots stay almost blank.
-- Status colors are paired with a label, motion, or border geometry:
-  - amber: needs-input label;
-  - red: explicit error or offline label;
-  - green: completed and unseen with the strongest lifecycle outline;
-  - blue: working with a moving border highlight;
-  - gray: idle with a thin solid outline, unknown with a dashed outline;
-  - doubled lifecycle-color border: focused.
-- Do not infer review-ready, test-failed, approval, or question semantics from arbitrary terminal text.
+Attention is declared by whoever actually knows, never inferred from terminal text: an agent's own hooks report a question, an approval-request, or that it finished; Herdr's native `blocked`/`done` are the floor beneath that; a supervised service that exits badly declares it on its workstream. Finished work is acknowledged the moment the developer taps the pane's own key to go look at it — the same tap that focuses it — and asks again the next time that same pane finishes, since acknowledgement is of one piece of finished work, not of the pane forever. A service that stays down and unrestarted keeps asking for as long as it stays down; nothing on the device can silence a problem that is still true.
 
-### Required Herdr extension seams
+### The paired Mini's global surface
 
-- Include the active theme name, resolved RGB palette, and light/dark appearance in the session snapshot API. Resolution of terminal-default and ANSI colors belongs to Herdr, not the Stream Deck plugin.
-- Read the current structured interaction, including type, text, options, and stable ID.
-- Submit an option only when the stable interaction ID is still current.
-- Activate an attached Herdr client without launching a new client.
-- Scroll a pane and return it to live output without taking terminal attach ownership.
-- Allow a declared plugin action to appear in a pane or agent context menu and open the plugin's slot-picker popup.
-- Herdr plugin v1 does not currently provide native context-menu contributions; keep this addition narrow and declarative rather than introducing a general UI plugin framework.
+When a Mini is attached alongside an XL, it stops mirroring channels and becomes the one place that belongs to no single workstream: its top row is the cross-workstream attention queue (a push jumps straight to whatever needs the developer most, across every workstream at once) and the two most recently focused panes; its bottom row is the overflow count, moved off the XL's strip while the Mini is there to carry it, plus two positions reserved for worktree creation and settings that have no verb wired to them yet (see Open decisions). Detaching the Mini returns the overflow count to the XL's strip immediately, with nothing to restart.
+
+### Rejected
+
+- **Question Mode**, a coordinated four-dial surface for reading and answering a structured agent question, was specified for the retired Stream Deck+ product and is not built. None of Herdr's socket methods read or submit a structured interaction, so it was unbuildable as specified. What survives in its place is narrower and honest about what Herdr can actually say: an agent's own hooks can declare that it has a question or needs an approval, which raises attention and is reachable by focusing the pane — not a browsable, submittable answer surface.
+- **Pausing a workstream** is not offered anywhere on the device. Herdr has no suspend; the nearest real action is sending an interrupt, which is a stop, not a pause, and presenting it as one would misrepresent what actually happens.
+- **A continuous autonomy dial**, mixing scrollback scrubbing with an adjustable autonomy level for an agent, is not built. Neither Herdr nor any agent implements anything such a control could actually drive.
 
 ### Open decisions
 
-- Exact attention-queue tie-breaking within each priority class.
-- Exact canned prompt copy for `CONTINUE`, `STATUS`, and `VERIFY`.
-- Hold, double-tap, confirmation, and acknowledgement timing values; these require device testing.
-- Distribution and update channel.
-- Physical-device brightness and acknowledgement timing calibration.
+- Opening a pull request in a browser from the Git/pull-request key. Ticket and pull-request state are already shown on the strip; nothing yet turns a known pull-request URL into an opened browser tab, and the key refuses honestly rather than guessing in the meantime.
+- Worktree creation and settings on the paired Mini's global surface are reserved positions with no verb behind them yet. An unassigned channel's own key invites a worktree the same way, and is equally unwired — dial 2 is where worktree creation actually landed, not a tap on the empty key itself.
+- The overflow count's placement — the XL's rightmost strip region on an XL-only rig, the Mini once one is attached — is provisional and needs validating on physical hardware.
+- The exact wire method and parameter shape for scrubbing a pane's scrollback (used by dial 1) was written against the documented API shape but has not been confirmed against a running Herdr.
+- Which platform to validate and ship first, and distribution and update channel.
+- Physical-device brightness, hold-duration, and acknowledgement-timing calibration — this project has not yet been exercised on physical Stream Deck + XL or Mini hardware at all; every check so far is `npm run preview`'s rendered-image feedback loop.
 
 ## Brand Commitments
 
-- Product name: Herdr Stream Deck+.
+- Product name: Herdr Stream Deck.
 - Preserve the existing Herdr name and sheep/terminal mark.
 - Keep user-facing copy brief, operational, and free of implementation terminology.
 
@@ -155,21 +105,21 @@ This is not a miniature Herdr UI or a generic macro pad. Its distinct mechanism 
 - `herdr_logo.svg`: primary square Herdr mark and OLED baseline source.
 - `herdr_logo_wide.png`: wide mark for light surfaces.
 - `herdr_logo_wide_dark.png`: wide mark for dark surfaces.
-- A runnable Stream Deck plugin slice and actual-resolution rendered previews now cover the dashboard, light/dark Herdr theme sync, one-shot Actions Mode, and armed Stop state.
-- The dashboard, pin chooser, eight keys, and four encoder regions have been exercised on a physical Stream Deck+. Timing and legibility still require continued hardware iteration.
+- A working Stream Deck plugin and `npm run preview`'s actual-resolution rendered images cover every channel, the Mini in both its mirror and global-surface roles, dial 1 and dial 2 in every state, the control row, and armed/acknowledged states.
+- No physical hardware run has happened yet (see Open decisions). Timing, legibility, and control feel at physical scale are unverified.
 
 ## Product Principles
 
-1. Physical triage and control, not a second UI.
-2. One hand must complete every routine interaction.
-3. Turns preview selections; page and thread navigation act immediately.
-4. Stable targets, explicit acknowledgement, and fail-closed answers prevent wrong-thread actions.
-5. Preserve muscle memory while allowing users to opt into named pages.
+1. Physical control for parallel work, not a second UI.
+2. Every routine interaction stays one-handed.
+3. Turning previews; pushing commits, except direct pane focus and scrollback scrubbing, which are themselves the point of turning.
+4. Attention is declared by whoever knows, never inferred — and nothing that is still true can be silenced.
+5. A channel is a workstream's stable position for as long as that workstream lives; reassigning one is deliberate, never automatic.
 
 ## Accessibility & Inclusion
 
-- Never rely on color alone; pair every state with a short label, symbol, or outline.
-- Preserve one-handed operation and avoid simultaneous holds or chords.
-- Keep touch-strip text readable at its physical size and page overflow rather than animating it.
+- Never rely on color alone; pair every state with a short label, a mark, or a border treatment.
+- Preserve one-handed operation; no control requires holding two things at once.
+- Keep touch-strip text readable at its physical size; content is dropped before it is shrunk below the type floor.
 - Keep all authored informational device text at 18 pixels or larger; shorten copy before reducing type.
-- Destructive actions require an explicit armed state and confirmation.
+- Destructive actions require an explicit armed state and a second, confirming action.

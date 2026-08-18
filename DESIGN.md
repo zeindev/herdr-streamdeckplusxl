@@ -1,219 +1,201 @@
 ---
-name: Herdr Stream Deck+
-description: A dense, runtime-themed physical triage instrument for Herdr.
+name: Herdr Stream Deck
+description: A dense, runtime-themed instrument for running several development workstreams in parallel.
 typography:
-  attention-count:
+  count:
     fontSize: "72px"
     fontWeight: 700
   primary-label:
-    fontSize: "26px"
+    fontSize: "24px"
     fontWeight: 700
     lineHeight: "29px"
-  dial-value:
+    floor: "18px"
+  branch-label:
     fontSize: "28px"
     fontWeight: 700
-  status-mark:
+  field-label:
+    fontSize: "20px"
+    fontWeight: 700
+  more-count-label:
     fontSize: "22px"
     fontWeight: 700
-  meta-label:
-    fontSize: "20px"
-    fontWeight: 700
-  strip-title:
-    fontSize: "20px"
-    fontWeight: 700
-    letterSpacing: "0.2px"
-  hint:
+  footer:
     fontSize: "18px"
     fontWeight: 700
     letterSpacing: "0.1px"
+  slot-number:
+    fontSize: "26px"
+    fontWeight: 700
 rounded:
-  key-outline: "16px"
+  key-outline: "18px"
 spacing:
-  key-inset: "3px"
+  key-inset: "4px"
   strip-content-inset: "18px"
 components:
   key-canvas:
     width: "144px"
     height: "144px"
   key-outline:
-    width: "138px"
-    height: "138px"
+    width: "136px"
+    height: "136px"
     rounded: "{rounded.key-outline}"
-  dial-region:
+  strip-region:
     width: "200px"
     height: "100px"
-  dial-accent-bar:
+  strip-accent-bar:
     width: "5px"
     height: "100px"
 ---
 
-# Design System: Herdr Stream Deck+
+# Design System: Herdr Stream Deck
 
 ## Overview
 
 **Creative North Star: "The Dense Terminal Instrument"**
 
-Herdr Stream Deck+ is a one-handed physical triage surface, not a miniature application. Eight fixed keys carry terse operational labels and state marks; four adjacent dial regions read as one continuous status strip. The visual hierarchy favors instant recognition, stable positions, and deliberate commits over decoration.
+Herdr Stream Deck is a physical instrument for running several development workstreams in parallel, not a miniature application. Three workstreams are always visible at once, one per physical channel, each with its panes arranged by role and its own permanent status readout. The visual hierarchy favors instant recognition, stable positions, and deliberate commits over decoration.
 
-The implementation is flat, compact, and terminal-like. Every unused OLED pixel is true black; Herdr supplies text, state, and focus colors while the plugin supplies geometry, type scale, and interaction marks.
+The implementation is flat, compact, and terminal-like. Every unused pixel is true black; Herdr supplies text, state, and focus colors, while the plugin supplies geometry, type scale, and interaction marks.
 
 **Key Characteristics:**
 
-- Fixed 4-by-2 key bank above one 800-by-100-pixel dial strip.
-- Short, bold monospaced labels with small uppercase strip titles.
-- Strong border changes for focus and armed destructive state.
-- Turns preview and presses commit, except direct page and thread navigation.
-- One-shot Actions Mode preserves fixed action positions.
+- The Stream Deck + XL's 36 keys and six touch-strip regions divide into three identical channels — three columns × four rows of keys, two dials each — one per workstream, always visible, with no mode for entering one.
+- The Stream Deck Mini's 3×2 grid mirrors the same three channels at a glance when attached alone, or becomes the one global surface — belonging to no single workstream — when an XL is attached alongside it. Column order matches the XL's on both, so muscle memory transfers rather than competing.
+- Short, bold monospaced labels; a channel's strip carries the only longer-lived text, and even that is capped readings, not prose.
+- Border weight and pattern carry state; a filled corner mark carries attention, redundantly with a wording change in the same key's footer.
+- Turning a dial previews; pushing commits — except focusing a pane and scrubbing its scrollback, which are themselves what turning does there.
+- Destructive verbs arm on a push and need a second, confirming push within a few seconds; the arm reverts on its own, and any other physical action cancels it early.
 
-**Build limitations:** The current SVGs depend on Unicode status glyphs and prefer system-installed Consolas or Cascadia Mono. Those dependencies are shipped implementation constraints, not canonical iconography or typeface assets.
+**Build limitations:** the current SVGs prefer the system-installed Consolas font and depend on the host renderer honoring literal stroke-dash geometry rather than normalized path lengths. Those are shipped implementation constraints, not canonical typeface or iconography assets.
 
 ## Colors
 
-The plugin has no independent palette. Until Herdr exposes its resolved runtime palette, rendering uses a generated compatibility copy of Herdr's 17 RGB built-in themes plus the saved theme name and custom RGB overrides from Herdr's config. The host-derived `terminal` palette falls back to monochrome.
+The plugin has no independent palette. Rendering uses a generated compatibility copy of Herdr's built-in themes plus the saved theme name and custom RGB overrides from Herdr's config, until Herdr exposes its resolved runtime palette directly.
 
 ### Runtime roles
 
-- **OLED field:** every key and dial background is fixed `#000000`. The selected thread adds an inset ring in its lifecycle color while the status border stays at the outer edge. Theme surface colors never tint unused pixels.
-- **Idle brand mark:** the exact Herdr vector uses the same resolved `text` color as primary LCD copy.
-- **Surface role:** `surface1` defines only the resting key outline.
-- **Text roles:** `text` and `subtext0` separate primary labels from slot numbers, titles, and hints.
-- **Contrast adaptation:** configured text and semantic roles retain their hue and are lifted toward white only when needed to remain legible on black.
-- **State roles:** `yellow` marks attention, `blue` marks working, `green` marks completed, `overlay0` marks idle, unknown, or offline, and `red` marks the armed destructive state.
-- **Accent role:** `accent` anchors ordinary dial regions and non-destructive emphasis.
+- **OLED field:** every key and strip region background is fixed `#000000`. Theme colors light only information-bearing pixels; nothing tints unused ones.
+- **Text roles:** `text` and `subtext0` separate primary labels and branch names from readings, footers, and slot numbers.
+- **Contrast adaptation:** every foreground color is resolved from its actual configured RGB value and lifted toward white only as far as needed to clear the black-field contrast floor; its hue is never replaced.
+- **State roles, by what a pane or control is doing:** `yellow` marks an agent waiting on input; `blue` marks one working; `green` marks one finished, with the thickest outline of the set; `overlay0`/gray marks idle (solid, thin) or unknown (dashed) — a pane with no agent reports no state at all rather than a color that means nothing; `red` marks the one armed destructive state and a refused or failed acknowledgement.
+- **Accent role:** `accent` marks a channel's strip identity bar and non-destructive emphasis.
+- **Feedback role:** a successful control acknowledgement is a brief full-key green field with black text, distinct from every lifecycle color so it cannot be mistaken for one.
 
-**The Herdr Owns Color Rule.** Never add plugin palette settings or hand-maintained swatches. The temporary generated palette copy must remain mechanically derived from Herdr and disappear when a resolved-theme API exists.
+**The Herdr Owns Color Rule.** Never add plugin palette settings or hand-maintained swatches. The generated palette copy must remain mechanically derived from Herdr and disappear when a resolved-theme API exists.
 
-**The OLED Black Rule.** Keep every background pixel `#000000`. Theme roles color information only: text, lifecycle outlines, and dial bars. Selection repeats the lifecycle color as an inset ring rather than using a fill.
+**The OLED Black Rule.** Keep every background pixel `#000000`. Theme roles color information only: text, outlines, and marks.
 
-**The OLED Contrast Rule.** Resolve every foreground from its actual configured RGB value, not the theme name or appearance. Text and small marks require 4.5:1 against black; outlines and bars require 3:1.
+**The OLED Contrast Rule.** Resolve every foreground from its actual configured RGB value, not the theme name or appearance. Text and small marks require 4.5:1 against black; outlines require 3:1.
 
-**The Meaning Is Redundant Rule.** Pair every runtime state color with a short label, a non-color mark, an outline, or a stable position; exact glyph artwork is not defined by this system.
+**The Meaning Is Redundant Rule.** Pair every runtime state color with a short label, a non-color mark, or a stable border treatment. A pane asking for the developer carries both a filled corner mark and a footer word naming the reason (`NEEDS YOU`, `QUESTION`, `APPROVAL`, `FINISHED`, `EXITED`) — never the mark alone.
 
 ## Typography
 
-All device text follows one compact monospaced hierarchy. The normative tokens define size, weight, line rhythm, and tracking; they deliberately do not name a system-installed font family.
+All device text follows one compact monospaced hierarchy. The tokens above define size, weight, and rhythm; they deliberately do not name a system-installed font family as a design asset, only as a current implementation dependency.
 
 ### Hierarchy
 
-- **Primary label** (700, 24px default, 18px floor, 29px line step): key names use at most three centered lines and shrink only when the default 24-column capacity overflows.
-- **Attention count** (700, 72px): the dominant datum on the active Inbox key.
-- **Dial value** (700, 28px): the current page, thread, or question state.
-- **Status mark** (700, 22px): the compact upper-right state marker on a key.
-- **Meta label** (700, 20px): slot numbers and compact key metadata.
-- **Strip title** (700, 20px, 0.2px tracking): uppercase dial-region context.
-- **Hint** (700, 18px, 0.1px tracking): secondary physical instructions such as `PRESS AGAIN`.
+- **Primary label** (700, 24px default, 18px floor, 29px line step): a pane or control key's own name, up to three centered lines, shrinking only once its widest line exceeds the default measure.
+- **Count** (700, 72px): the dominant number on a key standing for more than it can show individually — panes a role's row had no space for, or the paired Mini's cross-workstream attention total.
+- **Branch label** (700, 28px): a channel's own identity, leading its strip.
+- **Field label** (700, 20px): a strip reading, a connection notice, or a dial's in-use preview — whatever currently occupies the strip's second line.
+- **More-count label** (700, 22px): the short word above a count key's own number.
+- **Footer** (700, 18px, uppercase, slight tracking): a pane's role, or an attention/acknowledgement word, beneath its primary label.
+- **Slot number** (700, 26px): the number an unassigned channel's key shows before it holds a worktree.
 
-**The Physical Type Floor.** Informational device text never falls below 18 pixels on its authored key or dial canvas. Shorten, truncate, or omit secondary copy before reducing type.
+**The Physical Type Floor.** Informational device text never falls below 18 pixels on its authored key or strip canvas. Shorten, truncate, or omit secondary copy before reducing type further.
 
 **The Device SVG Rule.** Put font family, weight, size, color, alignment, and tracking directly on every SVG text element. Do not depend on embedded CSS, classes, or font shorthand in device images.
 
-**The Operational Copy Rule.** Labels stay brief, literal, and free of implementation terminology; longer content belongs only in the coordinated Question surface.
+**The Operational Copy Rule.** Labels stay brief, literal, and free of implementation terminology.
 
-**The Authored Action Feedback Rule.** Every interactive key and dial owns its pending, success, failure, and restore behavior. A successful key acknowledgement uses a full green field with black text so it cannot be confused with normal lifecycle state. The optional pinned-thread `FOCUSED` acknowledgement defaults off because the selected ring already confirms the change. An immediate authored state change such as pinning, page navigation, Inbox, or Actions Mode needs no intermediate acknowledgement screen. Failures name the cause and recovery on the affected control. Never call Stream Deck's generic `showOk()` or `showAlert()` overlays, and never let a rejected action fall through to host-owned feedback.
+**The Authored Action Feedback Rule.** Every interactive control owns its own pending, success, failure, and restore behavior. A successful acknowledgement uses the full green feedback field described above. A refusal or failure names its cause on the control itself — `NO PR YET`, `NO WORKTREE`, `NO AGENT`, or whatever Herdr's own error said — in the danger color, never the generic host warning overlay. Never call the Stream Deck SDK's own `showOk()`/`showAlert()`; a rejected action never falls through to host-owned feedback.
 
-**The Latest Action Rule.** The touch strip always represents the latest physical action. A thread press cancels an active page takeover or Settings panel immediately and restores the idle baseline; an older timer must never overwrite or delay that response.
-
-**The Actionable Error Rule.** Never use the host warning triangle. Render a short cause and recovery hint on the affected key or dial, then restore its normal state.
-
-**The Working Motion Rule.** Keep working labels and the blue lifecycle outline static; animate only a soft 15% swoosh carried by that same outline, with overlay intensity rising toward its center and falling away at both ends. Complete one lap in 21 explicit SVG frames rendered every 128 milliseconds only on visible working keys. Use the rounded outline's measured 513-pixel perimeter for dash length and travel because the Stream Deck renderer does not honor normalized `pathLength` dash metrics; make each dash pattern span two measured perimeters so it cannot repeat. Motion never adds an interior ornament, replaces semantic color, or overwrites pressed, success, or failure feedback. Darkening is the default treatment; dial 4 keeps lightening and Nextide rainbow available for physical comparison.
-
-**The Motion Tuning Rule.** Dial 4 Settings owns the persisted `0.2×` through `2.0×` lap-speed multiplier, working-border treatment, width, and intensity.
-
-**The Recent Thread Rule.** Turning dial 3 previews recently focused live threads without changing Herdr focus. Pressing commits the previewed thread; the preview times out or yields immediately to a newer action.
+**The Latest Action Rule.** Whatever a channel's strip or a picker's keys show reflects the most recent physical action on that control. A newer press or turn always wins over an older pending state — an arm, a browsed preview, an open role picker — rather than a stale timer being left to resolve on its own after something newer already superseded it.
 
 ## Layout
 
-The key bank is a fixed four-column, two-row arrangement of full 144-by-144-pixel canvases. Thread slots form a 3-by-2 block on the left; Inbox and Actions form a persistent action rail on the right. The lifecycle outline sits 3 pixels from the edge; slot metadata sits at the upper left, the state mark at the upper right, and the primary label remains centered. The selected thread adds a second lifecycle-color ring inside it.
+### The XL
 
-The touch strip is one uninterrupted 800-by-100-pixel black composition rendered through four adjacent 200-by-100-pixel regions. Titles and values share an 18-pixel left inset. Each region uses a 5-pixel full-height state bar at its left edge.
+Three channels, each three columns × four rows of full 144×144 key canvases, plus two dials and two 200×100 strip regions. The top three rows are that channel's panes, one role per row — agent, then server, then a shared row split between tests, logs, and shell — so reading down a channel shows one workstream and reading across a row compares every instance of one role across all three. The fourth row is that channel's three fixed control keys: focus, Git and pull request, actions. This layout never changes with the rig; attaching or detaching a Mini reflows nothing on the XL.
 
-**The Fixed Geography Rule.** The rows remain `1 2 3 INBOX` and `4 5 6 ACTIONS`. Preserve these positions across modes so one-handed muscle memory remains reliable.
+The strip is one uninterrupted 1200×100 black composition across six 200×100 regions, two per channel, windowed rather than divided — a branch name may run past the seam between a channel's own two regions rather than being cut in half at it. Each channel's own accent bar sits 5 pixels wide at the left edge of its first region.
+
+### The Mini
+
+6 keys as a 3×2 grid, no dials, no strip. Column order matches the XL's exactly, so column 1 is always the same workstream on both devices.
+
+**Mirroring alone:** row 1 is a workstream's own identity and aggregate agent state, one key per channel; row 2 is that workstream's single most urgent pane, tapped to jump straight to it.
+
+**Paired with an XL:** the Mini stops mirroring and becomes the global surface instead. Row 1 is the cross-workstream attention queue (one key, a count and the worst reason present, pushed to jump to whatever needs the developer most) and the two most recently focused panes. Row 2 is the overflow count, moved here from the XL's strip while the Mini is attached, plus two reserved positions for worktree creation and settings.
+
+**The Fixed Geography Rule.** A channel's column never moves, and its control row never becomes something else. Preserve stable positions across every rig so one-handed muscle memory keeps working when the developer's own hands are already there.
 
 ## Elevation & Depth
 
-The system uses no shadows, nested fills, or background artwork. Hierarchy comes only from type, border-carried lifecycle cues, the selected-thread ring, and border-weight changes for completion or danger.
+The system uses no shadows, nested fills, or background artwork. Hierarchy comes only from type, border treatment, and a filled attention mark.
 
 **The Flat Instrument Rule.** Do not add decorative chrome, gradients, gloss, or simulated physical depth.
 
 ## Shapes
 
-Keys use one rounded lifecycle outline on the OLED field. The dial strip is rectangular and continuous; individual regions must not read as detached cards. Working, blocked, and offline borders are 5 pixels; completed and armed destructive borders are 7 pixels; idle borders are 3 pixels; and unknown borders are 3-pixel dashed outlines. Selection adds a 3-pixel inset ring in the lifecycle color without moving or changing the outer status outline.
+Keys use one rounded outline (18px radius) on the true-black field, inset 4 pixels from the canvas edge. The strip is rectangular and continuous; individual regions must not read as detached cards. Border width and pattern carry state: waiting-on-input and working are 5px solid; finished and the one armed destructive state are 7px solid; idle is 3px solid; unknown (no agent data at all) is 3px dashed.
 
 ## Components
 
-### Thread and action key
+### Pane key
 
-- **Canvas:** full 144 by 144 pixels on fixed black; the selected thread adds an inset lifecycle-color ring inside the unchanged outer status outline.
-- **Content:** the deepest useful pane identity, a border-carried state cue, and an optional short actionable footer. Slot numbers appear only when empty. Page and queue context use temporary full-strip takeovers; the idle strip uses one baseline with the Herdr logo fixed at the far right.
-- **Label behavior:** split labels at word separators when possible and use no more than three centered lines. Before accepting a third line of only one to three columns, retry as two balanced lines up to 12 columns wide and use that result only when it remains at least 20px. Lines nine columns or wider tighten to `-0.04em` so they remain clear of the selected-thread ring without changing size on focus. Remove a trailing hyphen only when it marks a rendered line break; preserve a hyphen at the end of the complete name. Keep the default 8-column measure at 24px or larger; names beyond its 24-column capacity may expand to 12 columns and shrink as far as the 18px physical type floor. Truncate only after that wider measure is exhausted. The deepest useful identity gets the largest type.
-- **Hold feedback:** crossing the 650ms threshold unpins only an occupied slot. Show `THREAD UNPINNED` on the full green success field for at least 500ms and until the physical key is released, then restore the empty slot. Holding an empty slot does nothing.
-- **Focus timing:** key-down only starts gesture tracking. A short key release focuses once; crossing the hold threshold never focuses or selects the thread.
-- **State:** lifecycle color is repeated through border weight, border pattern, working motion, or a literal footer. Selection repeats that color as an inset ring while preserving the outer lifecycle border. Do not restore interior status glyphs or the removed bottom rail.
-- **Inbox exception:** when attention exists, place `INBOX` at the top and render the queue count as the dominant 72-pixel number. Do not add a footer or icon.
-- **Empty slot:** show only its slot number and a quiet plus mark.
+- **Canvas:** the full 144×144 key.
+- **Content:** the pane's own name as the primary label, its role as the footer — replaced by the attention word when it is asking — and a lifecycle-colored border when it runs an agent. A pane with no agent carries no status border at all, since Herdr has no state to report for one.
+- **Attention mark:** a filled disc at the key's upper-right names nothing by itself; it is always paired with the footer word, so the mark and the word carry the same fact through two different channels.
+- **Label behavior:** up to three centered lines, split at word separators where possible; a name past the default measure may widen before it shrinks, and shrinks no further than the 18px floor.
 
-### Dial region
+### More-count key
 
-- **Canvas:** 200 by 100 pixels, one quarter of the coordinated strip.
-- **Content:** uppercase 20-pixel title at 18 by 32 pixels and 28-pixel primary value at 18 by 73 pixels.
-- **Label behavior:** dial values cap at 10 monospaced columns and truncate with an ellipsis.
-- **Field:** keep the full strip background deep black; only information-bearing pixels may light.
+A role's row had more panes than it had keys for. Shows the word `MORE` (or the worst attention reason among the panes it is standing for) above the count of what did not fit — never silent, and marked whenever one of the hidden panes is asking.
 
-### Idle strip
+### Empty channel key
 
-- **Baseline:** the Herdr logo permanently owns the rightmost 100 pixels. The remaining field shows only `Page N` above the focused thread. Permanently reserve a lifecycle gutter directly left of its name and keep the name anchored at `x=60` in every state. Working rotates a bright head and two fading predecessors through the fixed six-circle grid. Non-working states reuse Herdr's marks as authored SVG: blocked bullseye, done solid circle, idle checkmark, and unknown or offline outline circle. Do not repeat a `WORKING` label. Inbox, Settings, and Actions replace the full strip immediately.
-- **Motion budget:** the selected-thread 2-by-3 indicator uses one serialized discrete-state delivery loop. After one LCD frame finishes sending, hold it for the selected fixed interval, then send exactly the next state; never catch up, repeat, skip, or overlap states. The indicator cycles through six states and redraws only the first dial region. The saved speed setting changes the dwell interval. Working-key border rendering remains staggered on a separate clock. Takeovers do not pay animation render cost.
+Shows its channel number, a plus mark, and the footer `NEW WORKTREE`, inviting one — the same honest naming a reserved-but-unwired control uses, since this key has nothing behind it to press yet either (see `PRODUCT.md`'s Open decisions).
 
-### Inbox takeover
+### Control row key
 
-- **Entry:** tapping Inbox immediately replaces all four dial regions; no second press is required.
-- **Content:** show queue position, selected thread, needs-input state, and either `PRESS DIAL 2` for a soft preview or `QUESTION IN HERDR` after focus. Never imply that dial 4 can open unsupported question content.
-- **Fallback:** when Herdr does not expose structured question content, never infer it from terminal text; identify the item and open it in Herdr.
-- **Exit:** Actions returns to the dashboard. The takeover also returns to the Herdr logo after five seconds. An empty queue uses the same full-strip surface to report `ALL CLEAR`.
+Three fixed positions per channel: focus, Git/pull-request (labeled with the repository name), actions. Idle, each shows its own verb name as the footer. A live acknowledgement replaces the footer with what just happened — success in the feedback field, refusal or failure in the danger color naming the cause — for a few seconds before reverting. The armed actions key alone escalates further, reading `STOP AGAIN` in the danger color until confirmed or the arm times out.
 
-### Structured question takeover
+### Role picker
 
-- **Entry:** Inbox selects the first question and focuses its thread inside Herdr without raising the operating-system window. Dial 1 cycles between questions without changing Herdr focus.
-- **Question phase:** use the full strip for thread identity, question position, and one readable text page. Each dial 2 detent advances one page.
-- **Neutral gate:** one detent after the last page displays `TURN FOR ANSWERS`; it separates reading from selection without a blank frame.
-- **Answer phase:** further dial 2 turns highlight one answer at a time. Reverse turns cross the neutral gate and return to the question pages.
-- **Press:** with no answer selected, keep the thread focused and raise its Herdr client. With an answer selected, submit according to the plugin-wide `IMMEDIATE` or `CONFIRM` setting; `IMMEDIATE` is the initial default.
-- **Integrity:** send stable interaction and option identifiers. A stale or resolved interaction submits nothing and displays `QUESTION CHANGED`.
-- **Dependency:** runtime support requires Herdr to expose structured interactions, stable submission, and a client-owned raise command. Never infer questions or terminal-window ownership from terminal text or process heuristics.
+A hold on a pane key, wherever an XL is present, replaces that one channel's three pane rows — never the control row, never another channel — with every role at once, each sitting exactly where its own pane row already would: agent's key where an agent pane already sits, and so on down the channel. A tap on any of them commits that role for the held pane and closes the picker; any other physical action, or a few seconds of nothing, closes it without committing.
 
-### Page takeover
+### Strip region
 
-- **Entry:** outside Inbox, turning dial 1 immediately switches the six pinned keys and replaces the left field with the active page.
-- **Content:** show `PINNED`, the page position, the `Page N` name, and a transient 3-by-2 lifecycle map in thread-key order. Empty slots use an unlabelled dim outline. Keep the Herdr logo fixed at the right.
-- **Exit:** return to the idle baseline five seconds after the latest page turn, or immediately after any thread press.
-- **Boundary:** expose every used page and exactly one empty next page; do not wrap or scroll through additional blanks.
+- **Canvas:** 200×100, one half of a channel's own 400px composition.
+- **Content:** the branch label leads; readings follow in a fixed order — attention count, ticket count, pull-request state, agent count — so one is always found in the same place. A reading whose value is not yet known reads as `?` rather than blank, since the point of reserving its place is that the developer learns where to look before there is anything to see.
+- **Notice:** a connection problem, or either dial being actively used, replaces the readings with one line — never the branch, which does not change because Herdr went away.
+- **Overflow:** the rightmost region of an XL-only rig carries the overflow count at its far right edge, right-aligned; a paired rig moves it to the Mini instead and this region falls quiet.
 
-### Actions bank
+### Dial-in-use notice
 
-- **Positions:** the six thread slots remain `CONTINUE`, `STATUS`, `VERIFY`, `ZOOM`, blank, and `STOP`; Inbox stays top-right and Actions becomes Back at bottom-right.
-- **Target:** the full touch strip displays `ACTIONS FOR` and the frozen thread name.
-- **Labels:** Continue, Status, and Verify use `PROMPT`; Zoom uses `HERDR`; Stop uses `CTRL+C`; and the unused slot stays fully black and inert. Armed Stop replaces its footer with `PRESS AGAIN`.
-- **Lifecycle:** entering Actions Mode swaps the six thread keys in place; one successful action acknowledges and returns to the dashboard.
+While dial 1 is browsing or scrubbing, or dial 2 is browsing, armed, or just reported an outcome, the owning channel's strip shows that instead of its permanent readings. Dial 2's own notice wins over dial 1's on the same channel, since it is the one that can be mid-arm on something destructive.
 
-### Armed Stop
+### Global surface keys (paired Mini)
 
-- **First press:** changes only key 6 to `STOP AGAIN`, switches label and border to Herdr's resolved red role, and increases the border to 7 pixels.
-- **Timeout:** after three seconds without confirmation, key 6 returns to its ordinary `STOP` state.
-- **Second press:** commits Stop on the same key before the timeout.
-- **Cancellation:** the fixed Back key exits without executing the destructive action.
+- **Queue:** a count across every workstream, marked with the worst reason present among them; pushed, it focuses whichever pane that worst item names, or does nothing if the worst item names none.
+- **Recent:** the two most recently focused panes, most recent first, drawn exactly like an ordinary pane key.
+- **Overflow:** the same count that would otherwise sit on the XL's strip.
+- **Worktree creation / settings:** reserved positions with no verb behind them yet (see `PRODUCT.md`'s Open decisions); they say what they are for rather than pretending to do something they cannot yet.
 
 ## Do's and Don'ts
 
 ### Do:
 
-- **Do** keep dashboard labels short enough to scan at physical-device size.
-- **Do** preserve the continuous true-black field across all four dial regions.
-- **Do** use border weight, wording, and stable position alongside runtime color.
-- **Do** keep turns as previews and presses as commits unless the control directly navigates pages or threads.
+- **Do** keep every label short enough to scan at physical-device size.
+- **Do** preserve the true-black field across every key and every strip region.
+- **Do** pair border weight, wording, and stable position with every runtime color.
+- **Do** keep turns as previews and pushes as commits, except focusing a pane and scrubbing its scrollback.
 
 ### Don't:
 
 - **Don't** introduce plugin theme settings, hand-maintained colors, manual appearance controls, or values sampled from preview images.
-- **Don't** turn the dial regions into separate cards or add decorative depth.
-- **Don't** use color alone to communicate focus, attention, completion, offline state, or danger.
-- **Don't** canonize the current Unicode status glyphs or system-installed font preferences as reusable design assets.
+- **Don't** turn strip regions into separate cards or add decorative depth.
+- **Don't** use color alone to communicate role, attention, lifecycle state, or danger.
+- **Don't** infer attention, role, or pull-request state from terminal text; every one of them is declared by something that knows.

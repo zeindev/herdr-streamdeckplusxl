@@ -215,6 +215,22 @@ export function sameSlots(left: Slots, right: Slots): boolean {
   );
 }
 
+/**
+ * Binds one channel to a workstream key directly, whatever it held before.
+ *
+ * The primitive `bind` and `cycle` both already build on informally; named
+ * and exported for a third caller (`-8e8`'s create-binds-to-its-own-channel
+ * reservation, `state.ts`), which needs to place a specific workstream in a
+ * specific channel rather than merely offer one to whichever is free.
+ */
+export function assignSlot(slots: Slots, channel: number, key: string): Slots {
+  if (!isSlot(channel) || slots.bindings[channel] === key) return slots;
+  const bindings = [...slots.bindings];
+  bindings[channel] = key;
+  const detached = slots.detached.filter((candidate) => candidate !== key);
+  return { bindings, detached };
+}
+
 /** First wins, so which workstream a channel resolves to never depends on order. */
 function presentByKey(workstreams: readonly Workstream[]): Map<string, Workstream> {
   const byKey = new Map<string, Workstream>();

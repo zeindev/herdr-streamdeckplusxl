@@ -14,7 +14,7 @@ import { channelAgentStatus, mostUrgentPaneOf, paneKeyLabel, type PaneCell } fro
 import { roleResolver } from "./role.js";
 import type { PaneProcesses, Role } from "./role.js";
 import { channelWorkstreams, overflowOf } from "./slots.js";
-import { channelRowsOf, dial1NoticeOf, queuePaneOf, recentPaneOf, rigOf, type State } from "./state.js";
+import { channelRowsOf, dial1NoticeOf, dial2NoticeOf, queuePaneOf, recentPaneOf, rigOf, type State } from "./state.js";
 import { OVERFLOW_CELLS, stripBlockOf, type StripBlock } from "./strip.js";
 import { workstreamIdentity, workstreamsOf, type Workstream } from "./workstream.js";
 
@@ -369,8 +369,11 @@ function encodersOf(
   const lastChannel = channelOfEncoder(layout, last);
   const blocks = workstreams.map((workstream, channel) => {
     // A connection notice always wins: a dial preview is not trustworthy once
-    // Herdr is unreachable either, and a channel only ever shows one message.
-    const channelNotice = notice ?? dial1NoticeOf(state, channel);
+    // Herdr is unreachable either. Dial 2 comes next — it is the one that can
+    // be mid-arm on something destructive, or reporting whether a worktree
+    // command just succeeded, either of which the developer needs to see over
+    // dial 1's own, lower-stakes preview. A channel only ever shows one message.
+    const channelNotice = notice ?? dial2NoticeOf(state, channel) ?? dial1NoticeOf(state, channel);
     return stripBlockOf(workstream, panes, {
       reserved: !channelNotice && overflow > 0 && channel === lastChannel ? OVERFLOW_CELLS : 0,
       notice: channelNotice,

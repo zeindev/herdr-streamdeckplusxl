@@ -42,6 +42,8 @@ export type DeviceEvent =
    * trip to Herdr to say so.
    */
   | { kind: "control-acknowledged"; workspaceId: string; column: number; ok: boolean; message?: string; at: number }
+  /** A dial-2 worktree command's outcome (`-8e8`), the same shape for the same reason. */
+  | { kind: "dial2-acknowledged"; channel: number; ok: boolean; message?: string; at: number }
   /**
    * Geography, role corrections, and acknowledged work, read back from storage
    * when the plugin starts.
@@ -112,4 +114,12 @@ export type Command =
    * two calls — so this stays its own command rather than forcing that
    * composition into `control-command`'s single-method shape.
    */
-  | { kind: "control-prompt"; workspaceId: string; column: number; paneId: string; text: string };
+  | { kind: "control-prompt"; workspaceId: string; column: number; paneId: string; text: string }
+  /**
+   * Dial 2's worktree lifecycle verb (`-8e8`), sent to Herdr and acknowledged
+   * on the channel that fired it — `control-command`'s own shape, keyed by
+   * channel instead of workspace and column, since dial 2 belongs to a
+   * channel rather than to one fixed key on a workstream that is already
+   * showing there.
+   */
+  | { kind: "dial2-command"; channel: number; method: string; params: Record<string, unknown>; successMessage: string };

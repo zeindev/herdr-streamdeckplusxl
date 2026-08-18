@@ -34,6 +34,18 @@ import {
   rotateScrub,
   type DialSelection
 } from "./dial.js";
+import {
+  acknowledgeDial2,
+  dial2AcknowledgementFor,
+  dial2ItemsOf,
+  dial2Notice,
+  dial2SelectedItem,
+  dueDial2ArmTimeout,
+  liveDial2Acknowledgements,
+  rotateDial2Browse,
+  type Dial2Outcome,
+  type Dial2Selection
+} from "./dial2.js";
 import { sameKey, type Command, type DeviceEvent, type DeviceInfo, type KeyAddress } from "./events.js";
 import { CHANNEL_COUNT, channelOfColumn, channelOfEncoder, columnInChannel, isDial1, layoutForDeviceType, type DeviceLayout, type Rig } from "./geometry.js";
 import { agentPaneOf, channelRows, mostUrgentPaneOf, type PaneCell } from "./panes.js";
@@ -46,8 +58,8 @@ import {
   type PaneProcesses,
   type RoleOverrides
 } from "./role.js";
-import { bind, channelWorkstreams, cycle, emptySlots, forgetAbsent, sameSlots, type Slots } from "./slots.js";
-import { oneWorkspacePerRepository, workstreamsOf, type Branches } from "./workstream.js";
+import { assignSlot, bind, channelWorkstreams, cycle, emptySlots, forgetAbsent, sameSlots, workstreamKey, type Slots } from "./slots.js";
+import { oneWorkspacePerRepository, workstreamsOf, type Branches, type Workstream } from "./workstream.js";
 
 /**
  * How long a burst of structural changes is allowed to settle before the truth
@@ -121,6 +133,23 @@ export type State = {
    * about a pane that exists right now.
    */
   dial1: ReadonlyArray<DialSelection | null>;
+  /**
+   * Each channel's own dial 2 (`-8e8`) — browsing its worktree-lifecycle
+   * verbs, or armed waiting for the confirming push a removal needs. Also
+   * ephemeral, for the same reason `dial1` is.
+   */
+  dial2: ReadonlyArray<Dial2Selection | null>;
+  /** What each channel's dial 2 most recently showed about its own last push. */
+  dial2Acknowledgements: readonly Dial2Outcome[];
+  /**
+   * The channel a pending `worktree.create` should land in, once the worktree
+   * it asked for appears (`-8e8`). Without this, `bind` would hand a newly
+   * created worktree to whichever channel happens to be free first, which is
+   * not necessarily the one the developer pressed create on. Cleared once the
+   * matching worktree is bound, the channel is reassigned to something else in
+   * the meantime, or the reservation simply times out.
+   */
+  reservedChannel: SlotReservation | null;
   /** When a structural change was first seen, or null when nothing is pending. */
   resyncRequestedAt: number | null;
   /** The one actions key currently armed for a destructive interrupt, if any. */
@@ -128,6 +157,18 @@ export type State = {
   /** What each control key most recently showed about its own last press. */
   controlAcknowledgements: readonly ControlOutcome[];
 };
+
+/** A channel waiting for the worktree its own `create` press asked for. */
+export type SlotReservation = { channel: number; repoKey: string; at: number };
+
+/**
+ * How long a slot reservation waits for its worktree to appear before giving
+ * up. Creating a worktree runs real git commands, so this is generous rather
+ * than matching the sub-few-second windows the arm/preview timeouts use —
+ * long enough that a slow repository does not silently lose its reservation
+ * and fall back to whichever channel happened to be free.
+ */
+export const RESERVATION_TIMEOUT_MS = 60_000;
 
 /** A key being held, and since when, so a hold can be told from a tap. */
 export type PressedKey = { key: KeyAddress; at: number };
@@ -148,6 +189,9 @@ export function initialState(): State {
     pressed: [],
     recentFocus: [],
     dial1: Array.from({ length: CHANNEL_COUNT }, () => null),
+    dial2: Array.from({ length: CHANNEL_COUNT }, () => null),
+    dial2Acknowledgements: [],
+    reservedChannel: null,
     resyncRequestedAt: null,
     armed: null,
     controlAcknowledgements: []
@@ -203,7 +247,16 @@ export function reduce(state: State, event: DeviceEvent): Step {
     case "herdr-snapshot": {
       const snapshot = event.snapshot;
       const workstreams = workstreamsOf(snapshot);
-      const slots = bind(forgetAbsent(state.slots, workstreams), workstreams);
+      // A reservation is applied before the ordinary `bind`, not after: it has
+      // to claim its channel while that channel is still free, or `bind` could
+      // just as easily hand the new worktree — or the channel — to whichever
+      // workstream happened to be waiting first (`-8e8`).
+      const { slots: preReserved, reservedChannel } = applyReservation(
+        state.reservedChannel,
+        forgetAbsent(state.slots, workstreams),
+        workstreams
+      );
+      const slots = bind(preReserved, workstreams);
       const acknowledged = keepAcknowledged(state.acknowledged, snapshot);
       return {
         state: {
@@ -223,6 +276,7 @@ export function reduce(state: State, event: DeviceEvent): Step {
           // a browsed selection is left alone, since its index still resolves
           // against whatever the channel's items are once redrawn.
           dial1: state.dial1.map((selection) => keepKnownDial1(selection, snapshot)),
+          reservedChannel,
           resyncRequestedAt: null
         },
         commands: [
@@ -281,7 +335,8 @@ export function reduce(state: State, event: DeviceEvent): Step {
     case "tick": {
       // A hold, a due resync, an expired arm, an expired acknowledgement and an
       // idle dial-1 preview are all independent, so one firing must never delay
-      // another by a whole beat.
+      // another by a whole beat. Dial 2's own arm timeout and its reservation's
+      // timeout are two more independents of the same kind (`-8e8`).
       const held = heldLongEnough(state, event.at);
       const hold = held ? applyHold(state, held, event.at) : { state, commands: [] };
       const resync = dueResync(hold.state, event.at);
@@ -291,8 +346,11 @@ export function reduce(state: State, event: DeviceEvent): Step {
       // when the preview started — is what lets a fresher rotate on the same
       // dial always win over a stale revert, however late this tick arrives.
       const dial1 = resync.state.dial1.map((selection) => revertIdleDial1(selection, event.at));
+      const dial2 = resync.state.dial2.map((selection) => (dueDial2ArmTimeout(selection, event.at) ? null : selection));
+      const dial2Acknowledgements = liveDial2Acknowledgements(resync.state.dial2Acknowledgements, event.at);
+      const reservedChannel = dueReservationTimeout(resync.state.reservedChannel, event.at) ? null : resync.state.reservedChannel;
       return {
-        state: { ...resync.state, armed, controlAcknowledgements, dial1 },
+        state: { ...resync.state, armed, controlAcknowledgements, dial1, dial2, dial2Acknowledgements, reservedChannel },
         commands: [...hold.commands, ...resync.commands]
       };
     }
@@ -307,6 +365,15 @@ export function reduce(state: State, event: DeviceEvent): Step {
         event.at
       );
       return { state: { ...state, controlAcknowledgements }, commands: [] };
+    }
+
+    case "dial2-acknowledged": {
+      const dial2Acknowledgements = acknowledgeDial2(
+        state.dial2Acknowledgements,
+        { channel: event.channel, ok: event.ok, message: event.message },
+        event.at
+      );
+      return { state: { ...state, dial2Acknowledgements }, commands: [] };
     }
 
     case "device-attached": {
@@ -376,23 +443,28 @@ export function reduce(state: State, event: DeviceEvent): Step {
       const channel = channelOfEncoder(layout, event.encoder);
       const slots = cycle(state.slots, channel, presentWorkstreams(state));
       // The channel now shows a different workstream, or none at all, so
-      // whatever dial 1 was browsing or scrubbing there no longer applies.
-      const dial1 = sameSlots(state.slots, slots) ? state.dial1 : withDial1(state.dial1, channel, null);
-      return { state: { ...state, slots, dial1 }, commands: savedIfChanged(state.slots, slots) };
+      // whatever either dial was browsing, scrubbing, or arming there no
+      // longer applies.
+      const reassigned = !sameSlots(state.slots, slots);
+      const dial1 = reassigned ? withDial1(state.dial1, channel, null) : state.dial1;
+      const dial2 = reassigned ? withDial2(state.dial2, channel, null) : state.dial2;
+      return { state: { ...state, slots, dial1, dial2 }, commands: savedIfChanged(state.slots, slots) };
     }
 
     case "encoder-rotate": {
       const layout = layoutOf(state, event.deviceId);
-      // Dial 1 only exists on the XL, and only its first encoder of each pair —
-      // the second is dial 2's, `-8e8`'s to wire up.
-      if (!layout || layout.kind !== "xl" || !isDial1(layout, event.encoder)) return { state, commands: [] };
-      return applyDial1Rotate(state, channelOfEncoder(layout, event.encoder), event.ticks, event.at);
+      if (!layout || layout.kind !== "xl") return { state, commands: [] };
+      const channel = channelOfEncoder(layout, event.encoder);
+      return isDial1(layout, event.encoder)
+        ? applyDial1Rotate(state, channel, event.ticks, event.at)
+        : applyDial2Rotate(state, channel, event.ticks, event.at);
     }
 
     case "encoder-down": {
       const layout = layoutOf(state, event.deviceId);
-      if (!layout || layout.kind !== "xl" || !isDial1(layout, event.encoder)) return { state, commands: [] };
-      return applyDial1Press(state, channelOfEncoder(layout, event.encoder), event.at);
+      if (!layout || layout.kind !== "xl") return { state, commands: [] };
+      const channel = channelOfEncoder(layout, event.encoder);
+      return isDial1(layout, event.encoder) ? applyDial1Press(state, channel, event.at) : applyDial2Press(state, channel, event.at);
     }
 
     case "encoder-up":
@@ -490,6 +562,134 @@ function applyDial1Press(state: State, channel: number, at: number): Step {
  */
 function scrollCommand(paneId: string, offset: number): Command {
   return { kind: "herdr-request", method: "pane.scroll", params: { pane_id: paneId, offset } };
+}
+
+/** Replaces one channel's dial-2 slot, leaving the array's identity alone when nothing changed. */
+function withDial2(dial2: ReadonlyArray<Dial2Selection | null>, channel: number, selection: Dial2Selection | null): ReadonlyArray<Dial2Selection | null> {
+  if (dial2[channel] === selection) return dial2;
+  const next = [...dial2];
+  next[channel] = selection;
+  return next;
+}
+
+/** A channel's dial-2 items, from state — shared with the projection the same way `dial1ItemsOf` is. */
+function dial2ItemsOfState(state: State, channel: number) {
+  const workstream = channelWorkstreams(state.slots, presentWorkstreams(state))[channel];
+  return { workstream, items: dial2ItemsOf(workstream, presentWorkstreams(state)) };
+}
+
+/**
+ * What a channel's strip says about dial 2, if anything (`-8e8`). A live
+ * acknowledgement always wins over the idle preview — the developer pushed
+ * to find out what happened, the same precedence the control row's own keys
+ * already give their acknowledgements over their idle labels.
+ */
+export function dial2NoticeOf(state: State, channel: number): string | null {
+  const ack = dial2AcknowledgementFor(state.dial2Acknowledgements, channel);
+  if (ack) return ack.ok ? (ack.message ?? "DONE") : (ack.message ?? "FAILED");
+  const { items } = dial2ItemsOfState(state, channel);
+  return dial2Notice(state.dial2[channel] ?? null, items);
+}
+
+/**
+ * Turning dial 2: moves the browsed selection. Rotating while a removal is
+ * armed backs out of it first — the same "a newer action cancels a pending
+ * destructive confirm" rule the actions key's own arm already follows — so
+ * the developer can always talk themselves out of a removal by simply
+ * turning the dial rather than having to wait out the whole timeout.
+ */
+function applyDial2Rotate(state: State, channel: number, ticks: number, at: number): Step {
+  const { items } = dial2ItemsOfState(state, channel);
+  const current = state.dial2[channel];
+  const from = current?.mode === "armed" ? null : current;
+  const next = rotateDial2Browse(from, items, ticks, at);
+  return { state: { ...state, dial2: withDial2(state.dial2, channel, next) }, commands: [] };
+}
+
+/**
+ * Pushing dial 2: `create` commits on its first push — reserving its channel
+ * for the worktree it asked for — while a browsed `remove` only arms, and
+ * needs this same function called a second time, within the timeout, to
+ * actually send `worktree.remove` (ADR-0009's friction, ADR-0007's "pressing
+ * commits").
+ */
+function applyDial2Press(state: State, channel: number, at: number): Step {
+  const { workstream, items } = dial2ItemsOfState(state, channel);
+  const current = state.dial2[channel];
+
+  if (current?.mode === "armed") {
+    const item = items.find((candidate) => candidate.kind === "remove");
+    const dial2 = withDial2(state.dial2, channel, null);
+    // The channel changed under the arm — nothing left here to confirm removing.
+    if (!item) return { state: { ...state, dial2 }, commands: [] };
+    return {
+      state: { ...state, dial2 },
+      commands: [dial2Command(channel, "worktree.remove", { workspace_id: item.workspaceId, force: false }, "REMOVED")]
+    };
+  }
+
+  if (current?.mode === "browse") {
+    const item = dial2SelectedItem(current, items);
+    if (!item) return { state, commands: [] };
+
+    if (item.kind === "remove") {
+      return { state: { ...state, dial2: withDial2(state.dial2, channel, { mode: "armed", at }) }, commands: [] };
+    }
+
+    const dial2 = withDial2(state.dial2, channel, null);
+    const reservedChannel: SlotReservation = { channel, repoKey: item.repoKey, at };
+    return {
+      state: { ...state, dial2, reservedChannel },
+      commands: [dial2Command(channel, "worktree.create", { cwd: item.repoRoot }, "CREATED")]
+    };
+  }
+
+  // Nothing has been browsed yet. A bound channel whose workstream has no
+  // worktree has nothing dial 2 could ever remove — that refuses locally,
+  // named, rather than a press there silently doing nothing, the same
+  // honesty the actions key already gives a workstream with no agent pane.
+  if (workstream && !workstream.worktree) {
+    const dial2Acknowledgements = acknowledgeDial2(state.dial2Acknowledgements, { channel, ok: false, message: "NO WORKTREE" }, at);
+    return { state: { ...state, dial2Acknowledgements }, commands: [] };
+  }
+  return { state, commands: [] };
+}
+
+function dial2Command(channel: number, method: string, params: Record<string, unknown>, successMessage: string): Command {
+  return { kind: "dial2-command", channel, method, params, successMessage };
+}
+
+/** Whether a slot reservation has outlived its window without its worktree appearing. */
+function dueReservationTimeout(reservation: SlotReservation | null, at: number): boolean {
+  return reservation !== null && at - reservation.at > RESERVATION_TIMEOUT_MS;
+}
+
+/**
+ * Claims a reservation's channel for the worktree it was waiting on, if that
+ * worktree has now appeared. Applied before the ordinary `bind`, so the
+ * channel it reserved is still free for it to claim.
+ */
+function applyReservation(
+  reservation: SlotReservation | null,
+  slots: Slots,
+  workstreams: readonly Workstream[]
+): { slots: Slots; reservedChannel: SlotReservation | null } {
+  if (!reservation) return { slots, reservedChannel: null };
+  // The channel was reassigned to something else while the worktree was still
+  // being created — the reservation has nothing left to claim.
+  if (slots.bindings[reservation.channel] !== null) return { slots, reservedChannel: null };
+
+  const claimed = new Set(slots.bindings.filter((key): key is string => key !== null));
+  const matches = workstreams.filter(
+    (workstream) => workstream.worktree?.repoKey === reservation.repoKey && !claimed.has(workstreamKey(workstream))
+  );
+  if (matches.length === 0) return { slots, reservedChannel: reservation }; // still waiting
+
+  // `workstreams` is already ordered oldest to newest (`workstreamsOf`'s own
+  // sort), so the last match is the one most likely to be what this press
+  // just asked Herdr to create.
+  const newest = matches[matches.length - 1];
+  return { slots: assignSlot(slots, reservation.channel, workstreamKey(newest)), reservedChannel: null };
 }
 
 function applyHerdrEvent(state: State, event: HerdrEvent, at: number): Step {

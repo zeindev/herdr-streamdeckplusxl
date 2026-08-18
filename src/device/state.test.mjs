@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { HOLD_MS, RESYNC_DEBOUNCE_MS, initialState, reduce } from "../../.preview/device/state.js";
 import { DIAL_PREVIEW_TIMEOUT_MS } from "../../.preview/device/dial.js";
+import { REMOVE_ARM_TIMEOUT_MS } from "../../.preview/device/dial2.js";
 import { ACK_DISPLAY_MS, ARM_TIMEOUT_MS, CONTINUE_PROMPT } from "../../.preview/device/control.js";
 import { attentionOf } from "../../.preview/device/attention.js";
 import { overflowOf, readSlots } from "../../.preview/device/slots.js";
@@ -423,6 +424,12 @@ function workspaceOn(number, label) {
   };
 }
 
+/** A workspace on a checkout in a specific, named repository — dial 2's create candidates come from these. */
+function workspaceOnRepo(number, label, repoKey) {
+  const workspace = workspaceOn(number, label);
+  return { ...workspace, worktree: { ...workspace.worktree, repo_key: repoKey, repo_name: repoKey, repo_root: `/repos/${repoKey}` } };
+}
+
 /** Holding a channel's strip is what reassigns it, since the panes took the keys. */
 function hold(state, channel) {
   return run([{ kind: "encoder-touch", deviceId: "xl-1", encoder: channel * 2, hold: true }], state);
@@ -610,6 +617,16 @@ function rotateDial1(state, channel, ticks, at) {
 /** Pushes a channel's dial 1. */
 function pressDial1(state, channel, at) {
   return run([{ kind: "encoder-down", deviceId: "xl-1", encoder: channel * 2, at }], state);
+}
+
+/** Rotates a channel's dial 2 (encoder `channel * 2 + 1`, the second of its pair, per ADR-0007). */
+function rotateDial2(state, channel, ticks, at) {
+  return run([{ kind: "encoder-rotate", deviceId: "xl-1", encoder: channel * 2 + 1, ticks, at }], state);
+}
+
+/** Pushes a channel's dial 2. */
+function pressDial2(state, channel, at) {
+  return run([{ kind: "encoder-down", deviceId: "xl-1", encoder: channel * 2 + 1, at }], state);
 }
 
 test("a snapshot asks what is running in panes it has not seen", () => {
@@ -1481,4 +1498,163 @@ test("each channel's dial 1 is independent of the others", () => {
 
   assert.deepEqual(channel1.dial1[0], { mode: "browse", index: 0, at: 100 });
   assert.deepEqual(channel1.dial1[1], { mode: "browse", index: 0, at: 200 });
+});
+
+/**
+ * Dial 2, at the reducer (ADR-0007, ADR-0009, `-8e8`): rotate to browse
+ * worktree-lifecycle verbs, push to commit — immediately for create, or arm
+ * then confirm for the destructive remove.
+ */
+
+test("rotating dial 2 on an empty channel steps through the repositories other channels already show, without asking Herdr for anything", () => {
+  const live = liveWith2([workspaceOnRepo(1, "auth", "repo-a"), workspaceOnRepo(2, "billing", "repo-b")], []).state;
+
+  // Channel 2 is empty; its candidates are every other channel's repository,
+  // sorted by the repository's own key rather than Herdr's listing order.
+  const first = rotateDial2(live, 2, 1, 100);
+  assert.deepEqual(first.state.dial2[2], { mode: "browse", index: 0, at: 100 });
+  assert.deepEqual(first.commands, [], "turning alone never asks Herdr for anything");
+
+  const second = rotateDial2(first.state, 2, 1, 200);
+  assert.deepEqual(second.state.dial2[2], { mode: "browse", index: 1, at: 200 });
+
+  // Two candidates; rotating past the last wraps to the first.
+  const third = rotateDial2(second.state, 2, 1, 300);
+  assert.deepEqual(third.state.dial2[2], { mode: "browse", index: 0, at: 300 });
+});
+
+test("an empty channel with no repository known anywhere has nothing for dial 2 to browse", () => {
+  const live = liveWith2([], []).state;
+  const { state, commands } = rotateDial2(live, 0, 1, 100);
+  assert.equal(state.dial2[0], null);
+  assert.deepEqual(commands, []);
+});
+
+test("a bound channel offers only removing its own worktree, and rotating stays on that one item", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], []).state;
+  const first = rotateDial2(live, 0, 1, 100).state;
+  assert.deepEqual(first.dial2[0], { mode: "browse", index: 0, at: 100 });
+
+  const spun = rotateDial2(first, 0, 5, 200).state;
+  assert.equal(spun.dial2[0].index, 0);
+});
+
+test("a channel holding a workspace with no worktree offers nothing on dial 2 — there is nothing here to remove", () => {
+  const primary = { ...workspaceOn(1, "primary"), worktree: null };
+  const live = liveWith2([primary], []).state;
+  const { state, commands } = rotateDial2(live, 0, 1, 100);
+  assert.equal(state.dial2[0], null);
+  assert.deepEqual(commands, []);
+});
+
+test("pressing dial 2 on a channel with no worktree refuses locally, named, rather than doing nothing silently", () => {
+  const primary = { ...workspaceOn(1, "primary"), worktree: null };
+  const live = liveWith2([primary], []).state;
+
+  const { state, commands } = pressDial2(live, 0, 100);
+  assert.deepEqual(commands, [], "there is nothing to remove, so no round trip to Herdr either");
+  assert.deepEqual(state.dial2Acknowledgements, [{ channel: 0, ok: false, message: "NO WORKTREE", until: 100 + ACK_DISPLAY_MS }]);
+});
+
+test("pressing dial 2's create commits immediately, with no arming, and asks Herdr to create a worktree in that repository", () => {
+  const live = liveWith2([workspaceOnRepo(1, "auth", "repo-a")], []).state;
+  const browsing = rotateDial2(live, 1, 1, 100).state;
+  assert.equal(browsing.dial2[1].mode, "browse");
+
+  const pressed = pressDial2(browsing, 1, 200);
+  assert.deepEqual(pressed.commands, [
+    { kind: "dial2-command", channel: 1, method: "worktree.create", params: { cwd: "/repos/repo-a" }, successMessage: "CREATED" }
+  ]);
+  assert.equal(pressed.state.dial2[1], null, "nothing left to browse; the reservation is what remembers the intent now");
+  assert.deepEqual(pressed.state.reservedChannel, { channel: 1, repoKey: "repo-a", at: 200 });
+});
+
+test("a worktree created from a channel binds to that channel once it appears, not just the lowest free one", () => {
+  const started = liveWith2([workspaceOnRepo(1, "auth", "repo-a")], []).state;
+  // Channels 1 and 2 are both free; create is pressed from channel 2 specifically.
+  const reserved = pressDial2(rotateDial2(started, 2, 1, 100).state, 2, 200).state;
+  assert.deepEqual(reserved.reservedChannel, { channel: 2, repoKey: "repo-a", at: 200 });
+
+  // The new worktree appears on the next snapshot. Plain `bind` alone would
+  // hand an unbound workstream to channel 1, the lowest free channel — the
+  // reservation has to win instead.
+  const after = liveWith([workspaceOnRepo(1, "auth", "repo-a"), workspaceOnRepo(9, "created", "repo-a")], reserved).state;
+
+  assert.equal(after.slots.bindings[2], "checkout:/w/created", "the reservation put it in channel 2, not channel 1");
+  assert.equal(after.slots.bindings[1], null, "channel 1 is still free — nothing claimed it");
+  assert.equal(after.reservedChannel, null, "consumed");
+});
+
+test("pressing dial 2's remove arms it rather than removing immediately", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], []).state;
+  const browsing = rotateDial2(live, 0, 1, 100).state;
+
+  const pressed = pressDial2(browsing, 0, 200);
+  assert.deepEqual(pressed.commands, []);
+  assert.deepEqual(pressed.state.dial2[0], { mode: "armed", at: 200 });
+});
+
+test("confirming an armed removal within the timeout sends worktree.remove for that workstream", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], []).state;
+  const armed = pressDial2(rotateDial2(live, 0, 1, 100).state, 0, 200).state;
+
+  const confirmed = pressDial2(armed, 0, 500);
+  assert.deepEqual(confirmed.commands, [
+    { kind: "dial2-command", channel: 0, method: "worktree.remove", params: { workspace_id: "w1", force: false }, successMessage: "REMOVED" }
+  ]);
+  assert.equal(confirmed.state.dial2[0], null);
+});
+
+test("an armed removal reverts on its own once it times out, unconfirmed", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], []).state;
+  const armed = pressDial2(rotateDial2(live, 0, 1, 100).state, 0, 200).state;
+
+  const tooSoon = run([{ kind: "tick", at: 200 + REMOVE_ARM_TIMEOUT_MS }], armed).state;
+  assert.equal(tooSoon.dial2[0].mode, "armed", "not past the timeout yet");
+
+  const reverted = run([{ kind: "tick", at: 200 + REMOVE_ARM_TIMEOUT_MS + 1 }], armed).state;
+  assert.equal(reverted.dial2[0], null);
+});
+
+test("rotating dial 2 while a removal is armed cancels the arm rather than leaving it live for a confirmation the developer was not reaching for", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], []).state;
+  const armed = pressDial2(rotateDial2(live, 0, 1, 100).state, 0, 200).state;
+
+  const { state, commands } = rotateDial2(armed, 0, 1, 300);
+  assert.equal(state.dial2[0].mode, "browse");
+  assert.deepEqual(commands, []);
+});
+
+test("dial 2's success and failure are acknowledged on the channel, naming the cause on failure", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], []).state;
+
+  const succeeded = run([{ kind: "dial2-acknowledged", channel: 0, ok: true, message: "CREATED", at: 100 }], live).state;
+  assert.deepEqual(succeeded.dial2Acknowledgements, [{ channel: 0, ok: true, message: "CREATED", until: 100 + ACK_DISPLAY_MS }]);
+
+  const failed = run(
+    [{ kind: "dial2-acknowledged", channel: 0, ok: false, message: "worktree has uncommitted changes", at: 200 }],
+    live
+  ).state;
+  assert.deepEqual(failed.dial2Acknowledgements, [
+    { channel: 0, ok: false, message: "worktree has uncommitted changes", until: 200 + ACK_DISPLAY_MS }
+  ]);
+});
+
+test("reassigning a channel's workstream clears whatever dial 2 was doing there", () => {
+  const live = liveWith2([workspaceOn(1, "auth"), workspaceOn(2, "billing")], []).state;
+  const armed = pressDial2(rotateDial2(live, 0, 1, 100).state, 0, 200).state;
+  assert.equal(armed.dial2[0].mode, "armed");
+
+  const reassigned = hold(armed, 0);
+  assert.equal(reassigned.state.dial2[0], null);
+});
+
+test("dial 1's encoder does not touch dial 2's state, and vice versa", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
+
+  const dial1Only = rotateDial1(live, 0, 1, 100).state;
+  assert.equal(dial1Only.dial2[0], null);
+
+  const dial2Only = rotateDial2(live, 0, 1, 100).state;
+  assert.equal(dial2Only.dial1[0], null);
 });

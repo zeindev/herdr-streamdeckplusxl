@@ -967,3 +967,58 @@ test("a connection notice wins over a dial 1 preview, since a preview is not tru
   const [device] = surfaceOf(offline).devices;
   assert.equal(device.encoders[0].block.notice, "OFFLINE");
 });
+
+/**
+ * Dial 2's own strip presence (ADR-0007, ADR-0009, `-8e8`): an armed removal
+ * must be visible before it can be trusted to time out visibly, and a
+ * success or failure must show on the channel that caused it. The reducer's
+ * own rotate/press/arm decisions are covered in state.test.mjs.
+ */
+
+test("an armed removal reads visibly on the channel's strip", () => {
+  const live = liveState({ workspaces: [workspaceOn(1, "auth")] });
+  const armed = run(
+    [
+      { kind: "encoder-rotate", deviceId: "xl-1", encoder: 1, ticks: 1, at: 100 },
+      { kind: "encoder-down", deviceId: "xl-1", encoder: 1, at: 200 }
+    ],
+    live
+  );
+
+  const [device] = surfaceOf(armed).devices;
+  assert.equal(device.encoders[0].block.notice, "REMOVE AGAIN?");
+});
+
+test("dial 2 winning over dial 1 on the same channel's strip, since it can be mid-arm on something destructive", () => {
+  const live = liveState({ workspaces: [workspaceOn(1, "auth")], panes: [paneOn("w1", "a")] });
+  const both = run(
+    [
+      { kind: "encoder-rotate", deviceId: "xl-1", encoder: 0, ticks: 1, at: 50 }, // dial 1 browsing
+      { kind: "encoder-rotate", deviceId: "xl-1", encoder: 1, ticks: 1, at: 100 }, // dial 2 browsing
+      { kind: "encoder-down", deviceId: "xl-1", encoder: 1, at: 200 } // dial 2 armed
+    ],
+    live
+  );
+
+  const [device] = surfaceOf(both).devices;
+  assert.equal(device.encoders[0].block.notice, "REMOVE AGAIN?");
+});
+
+test("dial 2's success is acknowledged on the channel's strip", () => {
+  const live = liveState({ workspaces: [workspaceOn(1, "auth")] });
+  const acknowledged = run([{ kind: "dial2-acknowledged", channel: 0, ok: true, message: "CREATED", at: 100 }], live);
+
+  const [device] = surfaceOf(acknowledged).devices;
+  assert.equal(device.encoders[0].block.notice, "CREATED");
+});
+
+test("dial 2's failure is acknowledged on the channel's strip, naming the cause", () => {
+  const live = liveState({ workspaces: [workspaceOn(1, "auth")] });
+  const acknowledged = run(
+    [{ kind: "dial2-acknowledged", channel: 0, ok: false, message: "worktree has uncommitted changes", at: 100 }],
+    live
+  );
+
+  const [device] = surfaceOf(acknowledged).devices;
+  assert.equal(device.encoders[0].block.notice, "worktree has uncommitted changes");
+});

@@ -355,20 +355,21 @@ class ChannelEncoder extends SingletonAction {
       kind: "encoder-rotate",
       deviceId: String(event.action.device.id),
       encoder: index,
-      ticks: event.payload.ticks
+      ticks: event.payload.ticks,
+      at: Date.now()
     });
   }
 
   override onDialDown(event: DialDownEvent): void {
     const index = event.action.coordinates?.column;
     if (index === undefined) return;
-    adapter.dispatch({ kind: "encoder-down", deviceId: String(event.action.device.id), encoder: index });
+    adapter.dispatch({ kind: "encoder-down", deviceId: String(event.action.device.id), encoder: index, at: Date.now() });
   }
 
   override onDialUp(event: DialUpEvent): void {
     const index = event.action.coordinates?.column;
     if (index === undefined) return;
-    adapter.dispatch({ kind: "encoder-up", deviceId: String(event.action.device.id), encoder: index });
+    adapter.dispatch({ kind: "encoder-up", deviceId: String(event.action.device.id), encoder: index, at: Date.now() });
   }
 }
 

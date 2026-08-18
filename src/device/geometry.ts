@@ -77,6 +77,16 @@ export function columnInChannel(layout: DeviceLayout, column: number): number {
   return column % layout.columnsPerChannel;
 }
 
+/** The channel an encoder belongs to. Each channel owns two: dial 1 first, dial 2 second (ADR-0007). */
+export function channelOfEncoder(layout: DeviceLayout, encoder: number): number {
+  return Math.floor(encoder / layout.encodersPerChannel);
+}
+
+/** Whether an encoder is a channel's dial 1 — its first of the two, rather than dial 2. */
+export function isDial1(layout: DeviceLayout, encoder: number): boolean {
+  return encoder % layout.encodersPerChannel === 0;
+}
+
 /** The absolute key index of a position inside a channel. */
 export function channelKeyIndex(layout: DeviceLayout, channel: number, column: number, row: number): number {
   return row * layout.columns + channel * layout.columnsPerChannel + column;

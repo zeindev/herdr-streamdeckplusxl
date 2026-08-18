@@ -907,3 +907,63 @@ test("the XL's key grid stays byte-for-byte identical even with overflow in play
   assert.equal(xlAlone.encoders[xlAlone.encoders.length - 1].overflow, 1, "unpaired, the XL strip carries the real count");
   assert.equal(xlPaired.encoders[xlPaired.encoders.length - 1].overflow, 0, "paired, the Mini carries it instead");
 });
+
+/**
+ * Dial 1's own strip presence (ADR-0007, `-u5d`): the acceptance criterion
+ * that a browsed or scrubbed selection is identifiable on the strip while
+ * the dial is in use. The reducer's own decisions about rotating and
+ * pushing are covered in state.test.mjs; this is only what gets drawn.
+ */
+
+test("browsing dial 1 replaces the channel's readings with the selected item, leaving the branch and the other channels alone", () => {
+  const live = liveState({
+    workspaces: [workspaceOn(1, "auth"), workspaceOn(2, "billing")],
+    worktrees: [{ path: "/w/auth", branch: "auth" }],
+    panes: [paneOn("w1", "a", { label: "shell one" })]
+  });
+  const browsing = run([{ kind: "encoder-rotate", deviceId: "xl-1", encoder: 0, ticks: 1, at: 100 }], live);
+
+  const [device] = surfaceOf(browsing).devices;
+  assert.equal(device.encoders[0].block.branch, "auth", "the branch survives a dial preview the same way it survives OFFLINE");
+  assert.equal(device.encoders[0].block.notice, "> shell one");
+  assert.deepEqual(device.encoders[0].block.readings, []);
+  assert.equal(device.encoders[2].block.notice, null, "billing's channel was not touched");
+});
+
+test("scrubbing dial 1 shows the scrollback depth on the channel's strip", () => {
+  const live = liveState({ workspaces: [workspaceOn(1, "auth")], panes: [paneOn("w1", "a")] });
+  const focused = run(
+    [
+      { kind: "encoder-rotate", deviceId: "xl-1", encoder: 0, ticks: 1, at: 100 },
+      { kind: "encoder-down", deviceId: "xl-1", encoder: 0, at: 200 },
+      { kind: "encoder-rotate", deviceId: "xl-1", encoder: 0, ticks: 5, at: 300 }
+    ],
+    live
+  );
+
+  const [device] = surfaceOf(focused).devices;
+  assert.equal(device.encoders[0].block.notice, "SCRUB -5");
+});
+
+test("a live scrub (offset zero) reads as LIVE rather than a bare zero", () => {
+  const live = liveState({ workspaces: [workspaceOn(1, "auth")], panes: [paneOn("w1", "a")] });
+  const focused = run(
+    [
+      { kind: "encoder-rotate", deviceId: "xl-1", encoder: 0, ticks: 1, at: 100 },
+      { kind: "encoder-down", deviceId: "xl-1", encoder: 0, at: 200 }
+    ],
+    live
+  );
+
+  const [device] = surfaceOf(focused).devices;
+  assert.equal(device.encoders[0].block.notice, "LIVE");
+});
+
+test("a connection notice wins over a dial 1 preview, since a preview is not trustworthy once Herdr is unreachable either", () => {
+  const live = liveState({ workspaces: [workspaceOn(1, "auth")], panes: [paneOn("w1", "a")] });
+  const browsing = run([{ kind: "encoder-rotate", deviceId: "xl-1", encoder: 0, ticks: 1, at: 100 }], live);
+  const offline = run([{ kind: "herdr-connection", connected: false }], browsing);
+
+  const [device] = surfaceOf(offline).devices;
+  assert.equal(device.encoders[0].block.notice, "OFFLINE");
+});

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { HOLD_MS, RESYNC_DEBOUNCE_MS, initialState, reduce } from "../../.preview/device/state.js";
+import { DIAL_PREVIEW_TIMEOUT_MS } from "../../.preview/device/dial.js";
 import { ACK_DISPLAY_MS, ARM_TIMEOUT_MS, CONTINUE_PROMPT } from "../../.preview/device/control.js";
 import { attentionOf } from "../../.preview/device/attention.js";
 import { overflowOf, readSlots } from "../../.preview/device/slots.js";
@@ -599,6 +600,16 @@ function holdKey(state, key, at = 5000) {
   const down = run([{ kind: "key-down", key, at }], state);
   const fired = run([{ kind: "tick", at: at + HOLD_MS }], down.state);
   return { ...fired, state: run([{ kind: "key-up", key, at: at + HOLD_MS + 1 }], fired.state).state };
+}
+
+/** Rotates a channel's dial 1 (encoder `channel * 2`, the first of its pair, per ADR-0007). */
+function rotateDial1(state, channel, ticks, at) {
+  return run([{ kind: "encoder-rotate", deviceId: "xl-1", encoder: channel * 2, ticks, at }], state);
+}
+
+/** Pushes a channel's dial 1. */
+function pressDial1(state, channel, at) {
+  return run([{ kind: "encoder-down", deviceId: "xl-1", encoder: channel * 2, at }], state);
 }
 
 test("a snapshot asks what is running in panes it has not seen", () => {
@@ -1292,4 +1303,182 @@ test("detaching the Mini from a paired rig leaves the XL an XL-only rig, with it
   // tapping it still focuses the same pane it always did.
   const { commands } = tapKey(xlOnly, keyAt(0, 0, 0));
   assert.deepEqual(commands, [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: "w1:a" } }]);
+});
+
+/**
+ * Dial 1, at the reducer (ADR-0007, `-u5d`): rotate to browse a workstream's
+ * panes and attention, push to focus, then rotate again to scrub scrollback.
+ * The strip-level "identifiable while in use" criterion is covered in
+ * surface.test.mjs, since it is about what gets drawn, not what the reducer
+ * decides.
+ */
+
+test("rotating dial 1 steps through a workstream's panes and attention in a stable order, without asking Herdr for anything", () => {
+  const withDeadService = { ...workspaceOn(1, "auth"), tokens: { sd_exit_dev: "1" } };
+  const live = liveWith2([withDeadService], [paneOn("w1", "b"), paneOn("w1", "a")]).state;
+
+  // Order: the paneless dead service first (nothing else can reach it), then
+  // panes by id — "w1:a" before "w1:b" — regardless of the snapshot's own order.
+  const first = rotateDial1(live, 0, 1, 100);
+  assert.deepEqual(first.state.dial1[0], { mode: "browse", index: 0, at: 100 });
+  assert.deepEqual(first.commands, [], "turning alone never mutates Herdr");
+
+  const second = rotateDial1(first.state, 0, 1, 200);
+  assert.deepEqual(second.state.dial1[0], { mode: "browse", index: 1, at: 200 });
+  assert.deepEqual(second.commands, []);
+
+  const third = rotateDial1(second.state, 0, 1, 300);
+  assert.deepEqual(third.state.dial1[0], { mode: "browse", index: 2, at: 300 });
+
+  // Three items; rotating past the last wraps to the first rather than stopping.
+  const fourth = rotateDial1(third.state, 0, 1, 400);
+  assert.deepEqual(fourth.state.dial1[0], { mode: "browse", index: 0, at: 400 });
+});
+
+test("a channel with no workstream has nothing for dial 1 to browse", () => {
+  const live = liveWith2([], []).state;
+  const { state, commands } = rotateDial1(live, 0, 1, 100);
+  assert.equal(state.dial1[0], null);
+  assert.deepEqual(commands, []);
+});
+
+test("pressing dial 1 while browsing a pane focuses it — the same request a pane key's own tap sends, so it never steals OS focus either — and switches the dial to scrubbing", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
+  const browsing = rotateDial1(live, 0, 1, 100).state;
+  assert.deepEqual(browsing.dial1[0], { mode: "browse", index: 0, at: 100 });
+
+  const pressed = pressDial1(browsing, 0, 200);
+  assert.deepEqual(pressed.commands, [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: "w1:a" } }]);
+  assert.deepEqual(pressed.state.dial1[0], { mode: "scrub", paneId: "w1:a", offset: 0, at: 200 });
+});
+
+test("pressing dial 1 on a paneless attention item does nothing, since it names no pane to focus", () => {
+  const withDeadService = { ...workspaceOn(1, "auth"), tokens: { sd_exit_dev: "1" } };
+  const live = liveWith2([withDeadService], []).state;
+  const browsing = rotateDial1(live, 0, 1, 100).state;
+  assert.equal(browsing.dial1[0].mode, "browse");
+
+  const pressed = pressDial1(browsing, 0, 200);
+  assert.deepEqual(pressed.commands, []);
+  assert.deepEqual(pressed.state.dial1[0], browsing.dial1[0], "still browsing; nothing was committed");
+});
+
+test("once a pane is focused, rotating dial 1 scrubs its scrollback rather than moving the browsed selection", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
+  const scrubbing = pressDial1(rotateDial1(live, 0, 1, 100).state, 0, 200).state;
+
+  const scrubbed = rotateDial1(scrubbing, 0, 3, 300);
+  assert.deepEqual(scrubbed.state.dial1[0], { mode: "scrub", paneId: "w1:a", offset: 3, at: 300 });
+  assert.deepEqual(scrubbed.commands, [{ kind: "herdr-request", method: "pane.scroll", params: { pane_id: "w1:a", offset: 3 } }]);
+});
+
+test("scrubbing never rotates past live", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
+  const scrubbing = pressDial1(rotateDial1(live, 0, 1, 100).state, 0, 200).state;
+
+  const overshoot = rotateDial1(scrubbing, 0, -5, 300);
+  assert.equal(overshoot.state.dial1[0].offset, 0);
+  assert.deepEqual(overshoot.commands, [{ kind: "herdr-request", method: "pane.scroll", params: { pane_id: "w1:a", offset: 0 } }]);
+});
+
+test("pressing dial 1 while scrubbing returns the pane to live output", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
+  const focused = pressDial1(rotateDial1(live, 0, 1, 100).state, 0, 200).state;
+  const scrubbing = rotateDial1(focused, 0, 4, 300).state;
+  assert.equal(scrubbing.dial1[0].offset, 4);
+
+  const returned = pressDial1(scrubbing, 0, 400);
+  assert.deepEqual(returned.state.dial1[0], { mode: "scrub", paneId: "w1:a", offset: 0, at: 400 });
+  assert.deepEqual(returned.commands, [{ kind: "herdr-request", method: "pane.scroll", params: { pane_id: "w1:a", offset: 0 } }]);
+});
+
+test("pressing dial 1 while already live asks Herdr for nothing", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
+  const scrubbing = pressDial1(rotateDial1(live, 0, 1, 100).state, 0, 200).state;
+  assert.equal(scrubbing.dial1[0].offset, 0);
+
+  const { commands, state } = pressDial1(scrubbing, 0, 300);
+  assert.deepEqual(commands, []);
+  assert.equal(state.dial1[0].at, 200, "nothing changed, so nothing was touched");
+});
+
+test("a browsed selection reverts on its own once it has stood idle past the timeout", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
+  const browsing = rotateDial1(live, 0, 1, 1000).state;
+
+  const tooSoon = run([{ kind: "tick", at: 1000 + DIAL_PREVIEW_TIMEOUT_MS }], browsing).state;
+  assert.equal(tooSoon.dial1[0].mode, "browse", "not past the timeout yet");
+
+  const reverted = run([{ kind: "tick", at: 1000 + DIAL_PREVIEW_TIMEOUT_MS + 1 }], browsing).state;
+  assert.equal(reverted.dial1[0], null);
+});
+
+test("a fresher rotate always wins over an older timer that would otherwise overwrite it", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a"), paneOn("w1", "b")]).state;
+  const browsing = rotateDial1(live, 0, 1, 1000).state;
+
+  // A second rotate refreshes `at` well inside the first selection's timeout
+  // window. A tick that arrives after the *original* `at` plus the timeout —
+  // the moment a stale timer would have reverted it — must not touch a
+  // selection whose own `at` is newer than that.
+  const refreshed = rotateDial1(browsing, 0, 1, 1000 + DIAL_PREVIEW_TIMEOUT_MS - 500).state;
+  const stillBrowsing = run([{ kind: "tick", at: 1000 + DIAL_PREVIEW_TIMEOUT_MS + 500 }], refreshed).state;
+  assert.equal(stillBrowsing.dial1[0].mode, "browse", "the newer rotate's own timeout has not elapsed yet");
+
+  const reverted = run([{ kind: "tick", at: refreshed.dial1[0].at + DIAL_PREVIEW_TIMEOUT_MS + 1 }], stillBrowsing).state;
+  assert.equal(reverted.dial1[0], null);
+});
+
+test("scrubbing does not revert on a timer — only a browsed preview does", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
+  const scrubbing = pressDial1(rotateDial1(live, 0, 1, 1000).state, 0, 1100).state;
+
+  const later = run([{ kind: "tick", at: 1100 + DIAL_PREVIEW_TIMEOUT_MS * 10 }], scrubbing).state;
+  assert.deepEqual(later.dial1[0], { mode: "scrub", paneId: "w1:a", offset: 0, at: 1100 });
+});
+
+test("reassigning a channel's workstream clears whatever dial 1 was browsing or scrubbing there", () => {
+  const live = liveWith2([workspaceOn(1, "auth"), workspaceOn(2, "billing")], [paneOn("w1", "a")]).state;
+  const browsing = rotateDial1(live, 0, 1, 100).state;
+  assert.equal(browsing.dial1[0].mode, "browse");
+
+  const reassigned = hold(browsing, 0);
+  assert.equal(reassigned.state.dial1[0], null);
+});
+
+test("a pane dial 1 is scrubbing disappearing clears the dial, since there is nothing left to scrub", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
+  const scrubbing = pressDial1(rotateDial1(live, 0, 1, 100).state, 0, 200).state;
+  assert.equal(scrubbing.dial1[0].mode, "scrub");
+
+  const gone = run([snapshotOf({ workspaces: [workspaceOn(1, "auth")], panes: [] })], scrubbing).state;
+  assert.equal(gone.dial1[0], null);
+});
+
+test("a browsed selection survives its pane disappearing — its index still resolves once the channel redraws", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
+  const browsing = rotateDial1(live, 0, 1, 100).state;
+
+  const gone = run([snapshotOf({ workspaces: [workspaceOn(1, "auth")], panes: [] })], browsing).state;
+  assert.deepEqual(gone.dial1[0], { mode: "browse", index: 0, at: 100 });
+});
+
+test("dial 2's encoder does not touch dial 1's state", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
+  const { state, commands } = run([{ kind: "encoder-rotate", deviceId: "xl-1", encoder: 1, ticks: 1, at: 100 }], live);
+  assert.deepEqual(commands, []);
+  assert.equal(state.dial1[0], null);
+});
+
+test("each channel's dial 1 is independent of the others", () => {
+  const live = liveWith2(
+    [workspaceOn(1, "auth"), workspaceOn(2, "billing")],
+    [paneOn("w1", "a"), paneOn("w2", "b")]
+  ).state;
+
+  const channel0 = rotateDial1(live, 0, 1, 100).state;
+  const channel1 = rotateDial1(channel0, 1, 1, 200).state;
+
+  assert.deepEqual(channel1.dial1[0], { mode: "browse", index: 0, at: 100 });
+  assert.deepEqual(channel1.dial1[1], { mode: "browse", index: 0, at: 200 });
 });

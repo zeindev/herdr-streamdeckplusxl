@@ -9,12 +9,12 @@ import {
   type AttentionReason
 } from "./attention.js";
 import { ACTIONS_COLUMN, FOCUS_COLUMN, GIT_COLUMN, acknowledgementFor } from "./control.js";
-import { CHANNEL_COUNT, channelKeyIndex, keyCount, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
+import { CHANNEL_COUNT, channelKeyIndex, channelOfEncoder, keyCount, layoutForDeviceType, type DeviceLayout } from "./geometry.js";
 import { channelAgentStatus, mostUrgentPaneOf, paneKeyLabel, type PaneCell } from "./panes.js";
 import { roleResolver } from "./role.js";
 import type { PaneProcesses, Role } from "./role.js";
 import { channelWorkstreams, overflowOf } from "./slots.js";
-import { channelRowsOf, queuePaneOf, recentPaneOf, rigOf, type State } from "./state.js";
+import { channelRowsOf, dial1NoticeOf, queuePaneOf, recentPaneOf, rigOf, type State } from "./state.js";
 import { OVERFLOW_CELLS, stripBlockOf, type StripBlock } from "./strip.js";
 import { workstreamIdentity, workstreamsOf, type Workstream } from "./workstream.js";
 
@@ -150,7 +150,7 @@ export function surfaceOf(state: State): Surface {
       deviceId: device.id,
       layout: layout.kind,
       keys: keysOf(state, layout, workstreams, attention, overflow),
-      encoders: encodersOf(layout, workstreams, panes, paired ? 0 : overflow, noticeFor(state), attention)
+      encoders: encodersOf(state, layout, workstreams, panes, paired ? 0 : overflow, noticeFor(state), attention)
     });
   }
   return { devices };
@@ -352,6 +352,7 @@ function paneFace(
  * and the channel sharing that region gives up the space rather than overlapping.
  */
 function encodersOf(
+  state: State,
   layout: DeviceLayout,
   workstreams: ReadonlyArray<Workstream | null>,
   panes: readonly PaneSnapshot[],
@@ -365,17 +366,20 @@ function encodersOf(
   if (layout.encoders === 0) return [];
 
   const last = layout.encoders - 1;
-  const lastChannel = Math.floor(last / layout.encodersPerChannel);
-  const blocks = workstreams.map((workstream, channel) =>
-    stripBlockOf(workstream, panes, {
-      reserved: !notice && overflow > 0 && channel === lastChannel ? OVERFLOW_CELLS : 0,
-      notice,
+  const lastChannel = channelOfEncoder(layout, last);
+  const blocks = workstreams.map((workstream, channel) => {
+    // A connection notice always wins: a dial preview is not trustworthy once
+    // Herdr is unreachable either, and a channel only ever shows one message.
+    const channelNotice = notice ?? dial1NoticeOf(state, channel);
+    return stripBlockOf(workstream, panes, {
+      reserved: !channelNotice && overflow > 0 && channel === lastChannel ? OVERFLOW_CELLS : 0,
+      notice: channelNotice,
       attention: attentionIn(attention, workstream?.workspaceId ?? null)
-    })
-  );
+    });
+  });
 
   return Array.from({ length: layout.encoders }, (_, region) => ({
-    block: blocks[Math.floor(region / layout.encodersPerChannel)] ?? EMPTY_BLOCK,
+    block: blocks[channelOfEncoder(layout, region)] ?? EMPTY_BLOCK,
     overflow: notice || region !== last ? 0 : overflow
   }));
 }

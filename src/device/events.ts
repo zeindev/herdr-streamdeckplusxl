@@ -55,9 +55,10 @@ export type DeviceEvent =
    * no timer of its own — unlike a key, which only reports down and up.
    */
   | { kind: "encoder-touch"; deviceId: string; encoder: number; hold: boolean }
-  | { kind: "encoder-rotate"; deviceId: string; encoder: number; ticks: number }
-  | { kind: "encoder-down"; deviceId: string; encoder: number }
-  | { kind: "encoder-up"; deviceId: string; encoder: number }
+  /** `at` is stamped by the adapter, the same as a key press, so dial 1's preview timeout has a clock to compare against (`-u5d`). */
+  | { kind: "encoder-rotate"; deviceId: string; encoder: number; ticks: number; at: number }
+  | { kind: "encoder-down"; deviceId: string; encoder: number; at: number }
+  | { kind: "encoder-up"; deviceId: string; encoder: number; at: number }
   /** A regular heartbeat. Drives anything time-based so the reducer stays pure. */
   | { kind: "tick"; at: number };
 

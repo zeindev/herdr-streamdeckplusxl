@@ -1212,6 +1212,23 @@ test("a workspace token change is structural, so the device re-reads and sees it
   assert.deepEqual(declared.commands, [{ kind: "load-snapshot" }]);
 });
 
+test("a branch changed outside Herdr — a `git switch` at the terminal — reaches the channel via sd_branch, with the workspace otherwise idle (`-0vd.1`)", () => {
+  const onMain = { ...workspaceOn(1, "auth"), tokens: { sd_branch: "main" } };
+  const live = liveWith([onMain], run([xl]).state).state;
+  assert.equal(workstreamsOf(live.snapshot, live.branches)[0].worktree.branch, "main");
+
+  // The Herdr plugin's own post-checkout hook republishes sd_branch, which is
+  // itself a workspace_metadata_updated push — structural on its own, with
+  // nothing else about the workspace changing: no pane, no focus, no agent
+  // activity.
+  const declared = run([recorded("workspace_metadata_updated"), { kind: "tick", at: RESYNC_DEBOUNCE_MS + 1 }], live);
+  assert.deepEqual(declared.commands, [{ kind: "load-snapshot" }]);
+
+  const onFeature = { ...workspaceOn(1, "auth"), tokens: { sd_branch: "feature/x" } };
+  const refreshed = run([snapshotOf({ workspaces: [onFeature] })], declared.state).state;
+  assert.equal(workstreamsOf(refreshed.snapshot, refreshed.branches)[0].worktree.branch, "feature/x");
+});
+
 /**
  * `-wl7`'s own four reducer cases: enrichment arriving, updating, expiring,
  * and never appearing at all. `workspace_metadata_updated` being structural

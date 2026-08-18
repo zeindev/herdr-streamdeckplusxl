@@ -5,12 +5,15 @@ import type { HerdrSnapshot, PaneSnapshot, WorkspaceSnapshot } from "../model.js
  *
  * `branch` is separate from the rest because Herdr reports it separately: the
  * snapshot's worktree block has no branch at all, so it arrives only with a
- * `worktree.list` reply. A channel therefore renders correctly before the branch
- * is known rather than waiting for it.
+ * `worktree.list` reply, or the `sd_branch` workspace token the Herdr plugin
+ * publishes (`scripts/herdr-branch.mjs`, ADR-0001, `-0vd.1`) — the token wins
+ * when both are present, since it is the one that stays right after a `git
+ * switch` made outside Herdr. A channel therefore renders correctly before
+ * the branch is known rather than waiting for it.
  *
  * Its three values are three different facts, and the device says which:
  * a name, `null` for a checkout on no branch at all, and `undefined` for one
- * Herdr has not been asked about yet.
+ * neither source has answered yet.
  */
 export type WorkstreamWorktree = {
   repoKey: string;
@@ -104,10 +107,30 @@ function toWorkstream(workspace: WorkspaceSnapshot, branches: Branches): Workstr
           repoRoot: worktree.repo_root,
           checkoutPath: worktree.checkout_path,
           isLinked: worktree.is_linked_worktree,
-          branch: worktree.checkout_path in branches ? branches[worktree.checkout_path] : undefined
+          branch: branchOf(workspace.tokens, worktree.checkout_path, branches)
         }
       : null
   };
+}
+
+/**
+ * A worktree's branch: `sd_branch` when the Herdr plugin (`scripts/herdr-branch.mjs`)
+ * has published one, `worktree.list`'s own answer otherwise (`ADR-0001`).
+ *
+ * The token wins whenever it is present, even an empty one — that is the
+ * whole fix for `-0vd.1`. `worktree.list` can only be as fresh as the last
+ * snapshot read, and a `git switch` inside an existing worktree pushes no
+ * Herdr event of any kind, so nothing schedules a fresh read of it; the
+ * token instead arrives the moment the branch actually changes, since a
+ * token write is itself a structural `workspace_metadata_updated` event.
+ * `sd_branch=""` is how the Herdr plugin declares a detached HEAD — the same
+ * "on no branch" `worktree.list` itself can answer — so an empty token value
+ * reads as `null`, not as an empty name.
+ */
+function branchOf(tokens: Record<string, string> | null | undefined, checkoutPath: string, branches: Branches): string | null | undefined {
+  const published = tokens?.sd_branch;
+  if (published !== undefined) return published === "" ? null : published;
+  return checkoutPath in branches ? branches[checkoutPath] : undefined;
 }
 
 function byNumberThenId(left: WorkspaceSnapshot, right: WorkspaceSnapshot): number {

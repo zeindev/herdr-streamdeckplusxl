@@ -51,6 +51,29 @@ test("channels take workstreams in Herdr's workspace order, deterministically", 
   assert.deepEqual(afterClosing.map((workstream) => workstream.label), ["second", "third"]);
 });
 
+test("sd_branch wins over worktree.list, since it stays right after a `git switch` made outside Herdr (`-0vd.1`)", () => {
+  const workspace = recordedWorkspace({ tokens: { sd_branch: "feature/from-token" } });
+  const worktree = recordedWorktree();
+  const [workstream] = workstreamsOf({ workspaces: [workspace], panes: [] }, { [worktree.path]: "feature/from-worktree-list" });
+
+  assert.equal(workstream.worktree.branch, "feature/from-token");
+});
+
+test("an empty sd_branch is a detached HEAD, not a branch named nothing", () => {
+  const workspace = recordedWorkspace({ tokens: { sd_branch: "" } });
+  const [workstream] = workstreamsOf({ workspaces: [workspace], panes: [] });
+
+  assert.equal(workstream.worktree.branch, null);
+});
+
+test("worktree.list still answers when no Herdr plugin has ever published sd_branch for this workspace", () => {
+  const workspace = recordedWorkspace({ tokens: { sd_tickets: "ABC-1" } });
+  const worktree = recordedWorktree();
+  const [workstream] = workstreamsOf({ workspaces: [workspace], panes: [] }, { [worktree.path]: worktree.branch });
+
+  assert.equal(workstream.worktree.branch, "sd-fixture-probe");
+});
+
 test("a checkout Herdr says is on no branch is an answer, not a gap", () => {
   const workspace = recordedWorkspace();
   const detached = workstreamsOf({ workspaces: [workspace], panes: [] }, { [workspace.worktree.checkout_path]: null })[0];

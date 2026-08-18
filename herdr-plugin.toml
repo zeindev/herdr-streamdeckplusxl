@@ -42,3 +42,20 @@ command = ["node", "scripts/herdr-pr.mjs", "worktree-created"]
 [[events]]
 on = "worktree.opened"
 command = ["node", "scripts/herdr-pr.mjs", "worktree-opened"]
+
+# Herdr-side enrichment (ADR-0004, ADR-0001, ticket -0vd.1): publishes the
+# workstream's actual current branch as the workspace token `sd_branch`, so a
+# `git switch` or `git checkout` — which pushes no Herdr event of any kind —
+# still reaches the device. Each of these also makes sure this worktree's own
+# post-checkout hook calls back into the script, since nothing on Herdr's
+# socket ever fires for a branch change made from the terminal.
+[[startup]]
+command = ["node", "scripts/herdr-branch.mjs", "startup"]
+
+[[events]]
+on = "worktree.created"
+command = ["node", "scripts/herdr-branch.mjs", "worktree-created"]
+
+[[events]]
+on = "worktree.opened"
+command = ["node", "scripts/herdr-branch.mjs", "worktree-opened"]

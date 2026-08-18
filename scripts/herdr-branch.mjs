@@ -11,7 +11,7 @@
  *   node herdr-branch.mjs startup           # herdr-plugin.toml [[startup]]
  *   node herdr-branch.mjs worktree-created  # herdr-plugin.toml [[events]] on worktree.created
  *   node herdr-branch.mjs worktree-opened   # herdr-plugin.toml [[events]] on worktree.opened
- *   node herdr-branch.mjs checkout          # installed as this worktree's own post-checkout hook
+ *   node herdr-branch.mjs checkout <flag>   # installed as this worktree's own post-checkout hook
  *
  * WHY A GIT HOOK, NOT A HERDR EVENT. Verified live against Herdr 0.8.0,
  * protocol 19 (ticket `-0vd.1`, recorded in ADR-0001): a `git switch` or
@@ -109,6 +109,12 @@ export function buildReportArgs({ workspaceId, branch, seq }) {
  * `herdr-tickets.mjs`'s `ensureCommitHookInstalled` already uses for
  * `post-commit`: an existing hook from something else is kept, ours is
  * appended once and never duplicated.
+ *
+ * Git calls `post-checkout` with three arguments — the previous `HEAD`, the
+ * new one, and a flag that is `1` for a branch checkout and `0` for a
+ * file-level one (`git checkout -- path/to/file`). The third is forwarded as
+ * `$3` and `main` below acts only when it is `1`, so restoring a single file
+ * does not spawn a `herdr` call for a branch that never actually changed.
  */
 export function ensureCheckoutHookInstalled(cwd, scriptPath = SCRIPT_PATH) {
   const hooksDir = git(cwd, ["rev-parse", "--git-path", "hooks"]);
@@ -116,7 +122,7 @@ export function ensureCheckoutHookInstalled(cwd, scriptPath = SCRIPT_PATH) {
 
   const absoluteHooksDir = hooksDir.startsWith("/") ? hooksDir : join(cwd, hooksDir);
   const hookPath = join(absoluteHooksDir, "post-checkout");
-  const invocation = `node ${JSON.stringify(scriptPath)} checkout`;
+  const invocation = `node ${JSON.stringify(scriptPath)} checkout "$3"`;
 
   const existing = existsSync(hookPath) ? readFileSync(hookPath, "utf8") : "";
   if (existing.includes(invocation)) return { installed: false, hookPath };
@@ -133,6 +139,14 @@ export function ensureCheckoutHookInstalled(cwd, scriptPath = SCRIPT_PATH) {
  * Publishes `sd_branch` for this workstream. `installHook` is true only for
  * the events where re-establishing it is worth the extra git call: startup
  * and either worktree event, not every single checkout.
+ *
+ * `env.HERDR_WORKSPACE_ID` is what makes the `post-checkout` hook path work
+ * with no context beyond what the shell already has: a pane inside a
+ * Herdr-managed worktree already carries it, the same fact
+ * `herdr-tickets.mjs`'s `post-commit` hook relies on — so a `git switch` run
+ * from a pane's own shell can identify its workspace without
+ * `HERDR_PLUGIN_CONTEXT_JSON`, which only startup and the worktree events
+ * carry.
  */
 export function run({ env, cwd: providedCwd, installHook, herdrBin = "herdr", report = spawnSync }) {
   const workspaceId = env.HERDR_WORKSPACE_ID;
@@ -164,6 +178,10 @@ function main(argv) {
     console.error(`usage: herdr-branch.mjs <${Object.keys(EVENT_INSTALLS_HOOK).join("|")}>`);
     process.exit(2);
   }
+  // `post-checkout`'s own third argument: `1` for a branch checkout, `0` for
+  // a file-level one (`git checkout -- path/to/file`). A file restore has
+  // not changed the branch, so there is nothing here worth a `herdr` call.
+  if (event === "checkout" && argv[1] === "0") process.exit(0);
   try {
     run({ env: process.env, installHook: EVENT_INSTALLS_HOOK[event], herdrBin: process.env.HERDR_BIN_PATH || "herdr" });
   } catch {

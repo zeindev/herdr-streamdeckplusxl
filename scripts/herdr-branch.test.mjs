@@ -64,13 +64,13 @@ test("buildReportArgs publishes the branch, including empty for detached HEAD", 
   );
 });
 
-test("ensureCheckoutHookInstalled writes a fresh post-checkout hook that calls back into this script", () => {
+test("ensureCheckoutHookInstalled writes a fresh post-checkout hook that calls back into this script, forwarding git's own branch-checkout flag", () => {
   const dir = scratchRepo();
   const scriptPath = "/fake/path/to/herdr-branch.mjs";
   const result = ensureCheckoutHookInstalled(dir, scriptPath);
   assert.equal(result.installed, true);
   const content = readFileSync(result.hookPath, "utf8");
-  assert.match(content, /node .*herdr-branch\.mjs.* checkout/);
+  assert.match(content, /node .*herdr-branch\.mjs.* checkout "\$3"/);
 });
 
 test("ensureCheckoutHookInstalled is idempotent: a second call changes nothing", () => {

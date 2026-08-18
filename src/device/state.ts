@@ -609,16 +609,22 @@ export function dial2NoticeOf(state: State, channel: number): string | null {
 
 /**
  * Turning dial 2: moves the browsed selection. Rotating while a removal is
- * armed backs out of it first — the same "a newer action cancels a pending
- * destructive confirm" rule the actions key's own arm already follows — so
- * the developer can always talk themselves out of a removal by simply
- * turning the dial rather than having to wait out the whole timeout.
+ * armed cancels it and briefly says so — the same "a newer action cancels a
+ * pending destructive confirm" rule the actions key's own arm already
+ * follows. Consuming that turn as cancellation keeps the strip from falling
+ * straight back to the ambiguous REMOVE preview after the developer backed
+ * out; once the acknowledgement expires, the normal workstream strip returns.
  */
 function applyDial2Rotate(state: State, channel: number, ticks: number, at: number): Step {
   const { items } = dial2ItemsOfState(state, channel);
   const current = state.dial2[channel];
-  const from = current?.mode === "armed" ? null : current;
-  const next = rotateDial2Browse(from, items, ticks, at);
+  if (current?.mode === "armed") {
+    const dial2 = withDial2(state.dial2, channel, null);
+    const dial2Acknowledgements = acknowledgeDial2(state.dial2Acknowledgements, { channel, ok: true, message: "CANCELLED" }, at);
+    return { state: { ...state, dial2, dial2Acknowledgements }, commands: [] };
+  }
+
+  const next = rotateDial2Browse(current, items, ticks, at);
   return { state: { ...state, dial2: withDial2(state.dial2, channel, next) }, commands: [] };
 }
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { HOLD_MS, RESYNC_DEBOUNCE_MS, initialState, reduce } from "../../.preview/device/state.js";
+import { HOLD_MS, RESYNC_DEBOUNCE_MS, dial2NoticeOf, initialState, reduce } from "../../.preview/device/state.js";
 import { DIAL_PREVIEW_TIMEOUT_MS } from "../../.preview/device/dial.js";
 import { REMOVE_ARM_TIMEOUT_MS } from "../../.preview/device/dial2.js";
 import { ACK_DISPLAY_MS, ARM_TIMEOUT_MS, CONTINUE_PROMPT } from "../../.preview/device/control.js";
@@ -1764,13 +1764,18 @@ test("an armed removal reverts on its own once it times out, unconfirmed", () =>
   assert.equal(reverted.dial2[0], null);
 });
 
-test("rotating dial 2 while a removal is armed cancels the arm rather than leaving it live for a confirmation the developer was not reaching for", () => {
+test("rotating dial 2 while a removal is armed cancels it visibly, then returns to the normal strip", () => {
   const live = liveWith2([workspaceOn(1, "auth")], []).state;
   const armed = pressDial2(live, 0, 200).state;
 
   const { state, commands } = rotateDial2(armed, 0, 1, 300);
-  assert.equal(state.dial2[0].mode, "browse");
+  assert.equal(state.dial2[0], null, "the cancelling turn is consumed instead of selecting REMOVE again");
+  assert.deepEqual(state.dial2Acknowledgements, [{ channel: 0, ok: true, message: "CANCELLED", until: 300 + ACK_DISPLAY_MS }]);
+  assert.equal(dial2NoticeOf(state, 0), "CANCELLED");
   assert.deepEqual(commands, []);
+
+  const reverted = run([{ kind: "tick", at: 300 + ACK_DISPLAY_MS + 1 }], state).state;
+  assert.equal(dial2NoticeOf(reverted, 0), null, "the normal workstream strip returns after the acknowledgement");
 });
 
 test("dial 2's success and failure are acknowledged on the channel, naming the cause on failure", () => {

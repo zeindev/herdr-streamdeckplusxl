@@ -25,7 +25,19 @@ case "$(uname -s)" in
     printf '%s' "$herdr_path" > "$staged_plugin/herdr-path.txt"
     rm -f "$package"
     /usr/bin/ditto -c -k --keepParent "$staged_plugin" "$package"
-    open "$package"
+
+    # `herdr plugin install` builds in a temporary checkout and relocates that
+    # checkout as soon as this script exits. Stream Deck opens packages
+    # asynchronously, so give it a stable path that survives that relocation.
+    if [ -n "${XDG_CACHE_HOME:-}" ]; then
+      installer_cache="$XDG_CACHE_HOME/herdr/installers"
+    else
+      installer_cache="$HOME/Library/Caches/herdr/installers"
+    fi
+    launch_package="$installer_cache/herdr-streamdeck.streamDeckPlugin"
+    mkdir -p "$installer_cache"
+    cp -f "$package" "$launch_package"
+    open "$launch_package"
     echo "Opened the Stream Deck installer. Accept its install prompt to finish."
     ;;
   Linux)

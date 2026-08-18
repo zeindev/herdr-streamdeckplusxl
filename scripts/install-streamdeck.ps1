@@ -27,7 +27,15 @@ try {
     Remove-Item -Force $package, $zip -ErrorAction SilentlyContinue
     Compress-Archive -Path $stagedPlugin -DestinationPath $zip -CompressionLevel Optimal
     Move-Item $zip $package
-    Start-Process $package
+
+    # Herdr builds in a temporary checkout that it relocates as soon as this
+    # script exits. Stream Deck opens packages asynchronously, so launch a
+    # persistent cache copy rather than the soon-to-move build artifact.
+    $installerCache = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "Herdr\installers"
+    $launchPackage = Join-Path $installerCache "herdr-streamdeck.streamDeckPlugin"
+    New-Item -ItemType Directory -Force $installerCache | Out-Null
+    Copy-Item -LiteralPath $package -Destination $launchPackage -Force
+    Start-Process $launchPackage
     Write-Host "Opened the Stream Deck installer. Accept its install prompt to finish."
 } finally {
     Remove-Item -LiteralPath $staging -Recurse -Force

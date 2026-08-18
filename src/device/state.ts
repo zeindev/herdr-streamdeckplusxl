@@ -611,9 +611,10 @@ export function dial2NoticeOf(state: State, channel: number): string | null {
  * Turning dial 2: moves the browsed selection. Rotating while a removal is
  * armed cancels it and briefly says so — the same "a newer action cancels a
  * pending destructive confirm" rule the actions key's own arm already
- * follows. Consuming that turn as cancellation keeps the strip from falling
- * straight back to the ambiguous REMOVE preview after the developer backed
- * out; once the acknowledgement expires, the normal workstream strip returns.
+ * follows. Consuming the whole encoder burst as cancellation keeps the strip
+ * from falling straight back to the ambiguous REMOVE preview after the
+ * developer backed out; once the acknowledgement expires, the normal
+ * workstream strip returns and a new turn may browse again.
  */
 function applyDial2Rotate(state: State, channel: number, ticks: number, at: number): Step {
   const { items } = dial2ItemsOfState(state, channel);
@@ -623,6 +624,12 @@ function applyDial2Rotate(state: State, channel: number, ticks: number, at: numb
     const dial2Acknowledgements = acknowledgeDial2(state.dial2Acknowledgements, { channel, ok: true, message: "CANCELLED" }, at);
     return { state: { ...state, dial2, dial2Acknowledgements }, commands: [] };
   }
+
+  // One physical turn commonly arrives as several rotate events. The first
+  // event above cancels; consume the trailing events for the lifetime of that
+  // acknowledgement so they cannot secretly select REMOVE underneath it.
+  const acknowledgement = dial2AcknowledgementFor(state.dial2Acknowledgements, channel);
+  if (acknowledgement?.message === "CANCELLED" && acknowledgement.until >= at) return { state, commands: [] };
 
   const next = rotateDial2Browse(current, items, ticks, at);
   return { state: { ...state, dial2: withDial2(state.dial2, channel, next) }, commands: [] };

@@ -1774,8 +1774,14 @@ test("rotating dial 2 while a removal is armed cancels it visibly, then returns 
   assert.equal(dial2NoticeOf(state, 0), "CANCELLED");
   assert.deepEqual(commands, []);
 
-  const reverted = run([{ kind: "tick", at: 300 + ACK_DISPLAY_MS + 1 }], state).state;
+  const trailing = rotateDial2(state, 0, 1, 350).state;
+  assert.equal(trailing.dial2[0], null, "later events from the same physical turn cannot select REMOVE behind the acknowledgement");
+
+  const reverted = run([{ kind: "tick", at: 300 + ACK_DISPLAY_MS + 1 }], trailing).state;
   assert.equal(dial2NoticeOf(reverted, 0), null, "the normal workstream strip returns after the acknowledgement");
+
+  const freshTurn = rotateDial2(reverted, 0, 1, 300 + ACK_DISPLAY_MS + 2).state;
+  assert.equal(freshTurn.dial2[0].mode, "browse", "a genuinely new turn may browse REMOVE again");
 });
 
 test("dial 2's success and failure are acknowledged on the channel, naming the cause on failure", () => {

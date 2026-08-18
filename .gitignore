@@ -9,6 +9,7 @@ dev.herdr.streamdeck.sdPlugin/herdr-path.txt
 *.streamDeckPlugin
 *.streamDeckProfile
 !dev.herdr.streamdeck.sdPlugin/profiles/
+!dev.herdr.streamdeck.sdPlugin/profiles/*.streamDeckProfile
 
 # Beads / Dolt files (added by bd init)
 .dolt/

@@ -10,6 +10,8 @@ Each channel's two touch-strip regions (400px) permanently show that workstream'
 
 **Amended by ADR-0011.** The frequent verbs — focus workstream, Git and pull request, actions — moved to three fixed control keys on each channel's bottom row, which is better for muscle memory than a rotate-to-discover menu. Dial 2 keeps only the rarer worktree lifecycle verbs such as create and remove, where rotate-to-discover costs little because the action is deliberate anyway.
 
+**Amended by ADR-0013.** Dial 1 still browses and focuses panes, but no longer changes into a scrollback scrubber after a push because Herdr 0.8 protocol 19 exposes no supported request for changing scroll position.
+
 Because ADR-0002 gives all six dials to the three channels, no dial is global. The fork's current global dials (page, attention queue, recent threads, settings) have no home on the Stream Deck + XL; per ADR-0011 the XL has no global rail either, so those surfaces exist only on a Mini.
 
 **A workstream cannot be paused.** Herdr has no suspend; the nearest thing is sending `ctrl+c`, which is a stop. Focus and resume are real, pause is not, and it must not appear on a control.

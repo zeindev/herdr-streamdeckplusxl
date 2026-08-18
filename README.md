@@ -19,7 +19,7 @@ Each of the XL's three channels holds one workstream: its panes fill the top thr
 | Control | What it does |
 | --- | --- |
 | A pane key | Tap to focus that pane in Herdr; hold to correct its detected role |
-| Dial 1 | Rotate to browse a channel's panes and attention, push to focus one; once focused, rotate to scrub its scrollback |
+| Dial 1 | Rotate to browse a channel's panes and attention, then push to focus the selected pane |
 | Dial 2 | Rotate an empty channel's candidate repositories, push to create a worktree there; on a bound channel, push to arm removing its worktree, push again to confirm |
 | Focus key | Bring the workstream forward in Herdr |
 | Git/pull-request key | Names the repository; no verb behind it yet |

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "rollup -c",
-    "check": "tsc --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck --outDir .preview src/model.ts src/text.ts src/herdr-themes.ts src/theme.ts src/render.ts src/herdr/protocol.ts src/herdr/decode.ts src/herdr/client.ts src/device/geometry.ts src/device/events.ts src/device/workstream.ts src/device/slots.ts src/device/attention.ts src/device/enrichment.ts src/device/control.ts src/device/dial.ts src/device/dial2.ts src/device/role.ts src/device/panes.ts src/device/strip.ts src/device/state.ts src/device/surface.ts src/device/paint.ts && node --experimental-strip-types --test \"src/herdr/*.test.mjs\" \"src/device/*.test.mjs\" \"scripts/*.test.mjs\"",
+    "check": "npm run check:bundle && tsc --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck --outDir .preview src/model.ts src/text.ts src/herdr-themes.ts src/theme.ts src/render.ts src/herdr/protocol.ts src/herdr/decode.ts src/herdr/client.ts src/device/geometry.ts src/device/events.ts src/device/workstream.ts src/device/slots.ts src/device/attention.ts src/device/enrichment.ts src/device/control.ts src/device/dial.ts src/device/dial2.ts src/device/role.ts src/device/panes.ts src/device/strip.ts src/device/state.ts src/device/surface.ts src/device/paint.ts && node --experimental-strip-types --test \"src/herdr/*.test.mjs\" \"src/device/*.test.mjs\" \"scripts/*.test.mjs\"",
+    "check:bundle": "node scripts/check-bundle.mjs",
     "capture": "node scripts/capture-events.mjs",
     "profile": "node scripts/build-profile.mjs",
     "typecheck": "tsc --noEmit",

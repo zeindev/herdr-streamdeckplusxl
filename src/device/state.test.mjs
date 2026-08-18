@@ -1468,7 +1468,7 @@ test("detaching the Mini from a paired rig leaves the XL an XL-only rig, with it
 
 /**
  * Dial 1, at the reducer (ADR-0007, `-u5d`): rotate to browse a workstream's
- * panes and attention, push to focus, then rotate again to scrub scrollback.
+ * panes and attention, then push to focus.
  * The strip-level "identifiable while in use" criterion is covered in
  * surface.test.mjs, since it is about what gets drawn, not what the reducer
  * decides.
@@ -1503,14 +1503,14 @@ test("a channel with no workstream has nothing for dial 1 to browse", () => {
   assert.deepEqual(commands, []);
 });
 
-test("pressing dial 1 while browsing a pane focuses it — the same request a pane key's own tap sends, so it never steals OS focus either — and switches the dial to scrubbing", () => {
+test("pressing dial 1 while browsing a pane focuses it — the same request a pane key's own tap sends — and clears the preview", () => {
   const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
   const browsing = rotateDial1(live, 0, 1, 100).state;
   assert.deepEqual(browsing.dial1[0], { mode: "browse", index: 0, at: 100 });
 
   const pressed = pressDial1(browsing, 0, 200);
   assert.deepEqual(pressed.commands, [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: "w1:a" } }]);
-  assert.deepEqual(pressed.state.dial1[0], { mode: "scrub", paneId: "w1:a", offset: 0, at: 200 });
+  assert.equal(pressed.state.dial1[0], null);
 });
 
 test("pressing dial 1 on a paneless attention item does nothing, since it names no pane to focus", () => {
@@ -1524,43 +1524,13 @@ test("pressing dial 1 on a paneless attention item does nothing, since it names 
   assert.deepEqual(pressed.state.dial1[0], browsing.dial1[0], "still browsing; nothing was committed");
 });
 
-test("once a pane is focused, rotating dial 1 scrubs its scrollback rather than moving the browsed selection", () => {
-  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
-  const scrubbing = pressDial1(rotateDial1(live, 0, 1, 100).state, 0, 200).state;
-
-  const scrubbed = rotateDial1(scrubbing, 0, 3, 300);
-  assert.deepEqual(scrubbed.state.dial1[0], { mode: "scrub", paneId: "w1:a", offset: 3, at: 300 });
-  assert.deepEqual(scrubbed.commands, [{ kind: "herdr-request", method: "pane.scroll", params: { pane_id: "w1:a", offset: 3 } }]);
-});
-
-test("scrubbing never rotates past live", () => {
-  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
-  const scrubbing = pressDial1(rotateDial1(live, 0, 1, 100).state, 0, 200).state;
-
-  const overshoot = rotateDial1(scrubbing, 0, -5, 300);
-  assert.equal(overshoot.state.dial1[0].offset, 0);
-  assert.deepEqual(overshoot.commands, [{ kind: "herdr-request", method: "pane.scroll", params: { pane_id: "w1:a", offset: 0 } }]);
-});
-
-test("pressing dial 1 while scrubbing returns the pane to live output", () => {
-  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
+test("after focusing, rotating dial 1 starts a fresh browse and never invents a scroll request", () => {
+  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a"), paneOn("w1", "b")]).state;
   const focused = pressDial1(rotateDial1(live, 0, 1, 100).state, 0, 200).state;
-  const scrubbing = rotateDial1(focused, 0, 4, 300).state;
-  assert.equal(scrubbing.dial1[0].offset, 4);
 
-  const returned = pressDial1(scrubbing, 0, 400);
-  assert.deepEqual(returned.state.dial1[0], { mode: "scrub", paneId: "w1:a", offset: 0, at: 400 });
-  assert.deepEqual(returned.commands, [{ kind: "herdr-request", method: "pane.scroll", params: { pane_id: "w1:a", offset: 0 } }]);
-});
-
-test("pressing dial 1 while already live asks Herdr for nothing", () => {
-  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
-  const scrubbing = pressDial1(rotateDial1(live, 0, 1, 100).state, 0, 200).state;
-  assert.equal(scrubbing.dial1[0].offset, 0);
-
-  const { commands, state } = pressDial1(scrubbing, 0, 300);
-  assert.deepEqual(commands, []);
-  assert.equal(state.dial1[0].at, 200, "nothing changed, so nothing was touched");
+  const browsingAgain = rotateDial1(focused, 0, 1, 300);
+  assert.deepEqual(browsingAgain.state.dial1[0], { mode: "browse", index: 0, at: 300 });
+  assert.deepEqual(browsingAgain.commands, []);
 });
 
 test("a browsed selection reverts on its own once it has stood idle past the timeout", () => {
@@ -1590,30 +1560,13 @@ test("a fresher rotate always wins over an older timer that would otherwise over
   assert.equal(reverted.dial1[0], null);
 });
 
-test("scrubbing does not revert on a timer — only a browsed preview does", () => {
-  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
-  const scrubbing = pressDial1(rotateDial1(live, 0, 1, 1000).state, 0, 1100).state;
-
-  const later = run([{ kind: "tick", at: 1100 + DIAL_PREVIEW_TIMEOUT_MS * 10 }], scrubbing).state;
-  assert.deepEqual(later.dial1[0], { mode: "scrub", paneId: "w1:a", offset: 0, at: 1100 });
-});
-
-test("reassigning a channel's workstream clears whatever dial 1 was browsing or scrubbing there", () => {
+test("reassigning a channel's workstream clears whatever dial 1 was browsing there", () => {
   const live = liveWith2([workspaceOn(1, "auth"), workspaceOn(2, "billing")], [paneOn("w1", "a")]).state;
   const browsing = rotateDial1(live, 0, 1, 100).state;
   assert.equal(browsing.dial1[0].mode, "browse");
 
   const reassigned = hold(browsing, 0);
   assert.equal(reassigned.state.dial1[0], null);
-});
-
-test("a pane dial 1 is scrubbing disappearing clears the dial, since there is nothing left to scrub", () => {
-  const live = liveWith2([workspaceOn(1, "auth")], [paneOn("w1", "a")]).state;
-  const scrubbing = pressDial1(rotateDial1(live, 0, 1, 100).state, 0, 200).state;
-  assert.equal(scrubbing.dial1[0].mode, "scrub");
-
-  const gone = run([snapshotOf({ workspaces: [workspaceOn(1, "auth")], panes: [] })], scrubbing).state;
-  assert.equal(gone.dial1[0], null);
 });
 
 test("a browsed selection survives its pane disappearing — its index still resolves once the channel redraws", () => {

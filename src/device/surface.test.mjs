@@ -951,7 +951,7 @@ test("the XL's key grid stays byte-for-byte identical even with overflow in play
 
 /**
  * Dial 1's own strip presence (ADR-0007, `-u5d`): the acceptance criterion
- * that a browsed or scrubbed selection is identifiable on the strip while
+ * that a browsed selection is identifiable on the strip while
  * the dial is in use. The reducer's own decisions about rotating and
  * pushing are covered in state.test.mjs; this is only what gets drawn.
  */
@@ -971,22 +971,7 @@ test("browsing dial 1 replaces the channel's readings with the selected item, le
   assert.equal(device.encoders[2].block.notice, null, "billing's channel was not touched");
 });
 
-test("scrubbing dial 1 shows the scrollback depth on the channel's strip", () => {
-  const live = liveState({ workspaces: [workspaceOn(1, "auth")], panes: [paneOn("w1", "a")] });
-  const focused = run(
-    [
-      { kind: "encoder-rotate", deviceId: "xl-1", encoder: 0, ticks: 1, at: 100 },
-      { kind: "encoder-down", deviceId: "xl-1", encoder: 0, at: 200 },
-      { kind: "encoder-rotate", deviceId: "xl-1", encoder: 0, ticks: 5, at: 300 }
-    ],
-    live
-  );
-
-  const [device] = surfaceOf(focused).devices;
-  assert.equal(device.encoders[0].block.notice, "SCRUB -5");
-});
-
-test("a live scrub (offset zero) reads as LIVE rather than a bare zero", () => {
+test("pushing dial 1 restores the channel's permanent readings after focusing", () => {
   const live = liveState({ workspaces: [workspaceOn(1, "auth")], panes: [paneOn("w1", "a")] });
   const focused = run(
     [
@@ -997,7 +982,8 @@ test("a live scrub (offset zero) reads as LIVE rather than a bare zero", () => {
   );
 
   const [device] = surfaceOf(focused).devices;
-  assert.equal(device.encoders[0].block.notice, "LIVE");
+  assert.equal(device.encoders[0].block.notice, null);
+  assert.notDeepEqual(device.encoders[0].block.readings, []);
 });
 
 test("a connection notice wins over a dial 1 preview, since a preview is not trustworthy once Herdr is unreachable either", () => {

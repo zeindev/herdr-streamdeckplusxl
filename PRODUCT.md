@@ -55,7 +55,7 @@ The full vocabulary — workstream, repository, worktree, ticket, pull request, 
 ### The permanent strip, and what each dial does
 
 - Each channel's two touch-strip regions permanently show its branch, its attention count, its ticket count, its pull-request state, and its number of running agents — nothing here is hidden behind a turn. A region with reserved but not-yet-known enrichment shows a real placeholder (`?`), never a blank, so the developer learns where to look before there is anything to see.
-- **Dial 1** rotates through a channel's panes and any paneless dead-service attention, in a stable order, and pushes to focus the selected one — never mutating Herdr while only turning. Once a pane is focused this way, the same dial changes job and scrubs that pane's scrollback instead; pushing again returns it to live output.
+- **Dial 1** rotates through a channel's panes and any paneless dead-service attention, in a stable order, and pushes to focus the selected pane — never mutating Herdr while only turning. Focusing clears the temporary strip preview, so the next turn starts browsing again.
 - **Dial 2** rotates a channel's worktree-lifecycle verbs. An empty channel offers creating a worktree in one of the repositories already visible elsewhere on the device; pushing commits immediately, and the new worktree lands in the very channel that asked for it, not just whichever channel happens to be free. A bound channel with a worktree offers removing it; pushing arms the removal, and a second push within the arm window confirms it. Success and failure both acknowledge on the dial that fired them, naming the cause on failure.
 - While either dial is in use, the channel's strip briefly shows what it is doing instead of the permanent readings, and reverts to them once the developer is done or a connection notice needs the space instead.
 
@@ -83,16 +83,16 @@ When a Mini is attached alongside an XL, it stops mirroring channels and becomes
 
 - **Question Mode**, a coordinated four-dial surface for reading and answering a structured agent question, was specified for the retired Stream Deck+ product and is not built. None of Herdr's socket methods read or submit a structured interaction, so it was unbuildable as specified. What survives in its place is narrower and honest about what Herdr can actually say: an agent's own hooks can declare that it has a question or needs an approval, which raises attention and is reachable by focusing the pane — not a browsable, submittable answer surface.
 - **Pausing a workstream** is not offered anywhere on the device. Herdr has no suspend; the nearest real action is sending an interrupt, which is a stop, not a pause, and presenting it as one would misrepresent what actually happens.
-- **A continuous autonomy dial**, mixing scrollback scrubbing with an adjustable autonomy level for an agent, is not built. Neither Herdr nor any agent implements anything such a control could actually drive.
+- **A continuous autonomy dial** is not built. Neither Herdr nor any agent implements anything such a control could actually drive.
+- **Scrollback scrubbing from dial 1** is not built. Herdr 0.8 protocol 19 exposes scroll state but no request that changes it, so the plugin does not send an invented method.
 
 ### Open decisions
 
 - Opening a pull request in a browser from the Git/pull-request key. Ticket and pull-request state are already shown on the strip; nothing yet turns a known pull-request URL into an opened browser tab, and the key refuses honestly rather than guessing in the meantime.
 - Worktree creation and settings on the paired Mini's global surface are reserved positions with no verb behind them yet. An unassigned channel's own key invites a worktree the same way, and is equally unwired — dial 2 is where worktree creation actually landed, not a tap on the empty key itself.
 - The overflow count's placement — the XL's rightmost strip region on an XL-only rig, the Mini once one is attached — is provisional and needs validating on physical hardware.
-- The exact wire method and parameter shape for scrubbing a pane's scrollback (used by dial 1) was written against the documented API shape but has not been confirmed against a running Herdr.
-- Which platform to validate and ship first, and distribution and update channel.
-- Physical-device brightness, hold-duration, and acknowledgement-timing calibration — this project has not yet been exercised on physical Stream Deck + XL or Mini hardware at all; every check so far is `npm run preview`'s rendered-image feedback loop.
+- Windows and Linux validation, and the long-term distribution and update channel; the current physical-device run is on macOS.
+- Further physical-device brightness, hold-duration, and acknowledgement-timing calibration.
 
 ## Brand Commitments
 
@@ -106,13 +106,13 @@ When a Mini is attached alongside an XL, it stops mirroring channels and becomes
 - `herdr_logo_wide.png`: wide mark for light surfaces.
 - `herdr_logo_wide_dark.png`: wide mark for dark surfaces.
 - A working Stream Deck plugin and `npm run preview`'s actual-resolution rendered images cover every channel, the Mini in both its mirror and global-surface roles, dial 1 and dial 2 in every state, the control row, and armed/acknowledged states.
-- No physical hardware run has happened yet (see Open decisions). Timing, legibility, and control feel at physical scale are unverified.
+- A first macOS physical-device run verified installation and profile import, and exposed the stale shipped runtime fixed by ADR-0013. Timing, legibility, and control feel still need broader calibration.
 
 ## Product Principles
 
 1. Physical control for parallel work, not a second UI.
 2. Every routine interaction stays one-handed.
-3. Turning previews; pushing commits, except direct pane focus and scrollback scrubbing, which are themselves the point of turning.
+3. Turning previews; pushing commits.
 4. Attention is declared by whoever knows, never inferred — and nothing that is still true can be silenced.
 5. A channel is a workstream's stable position for as long as that workstream lives; reassigning one is deliberate, never automatic.
 

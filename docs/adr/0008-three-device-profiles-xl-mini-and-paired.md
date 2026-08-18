@@ -22,7 +22,7 @@ Both target devices divide by three, matching the three-workstream cap: the XL i
 
 ## Consequences
 
-- A Mini-only setup has no dials and no strip, so everything ADR-0007 places there — branch, ticket list, pull-request state, scrollback scrubbing, the verb list — does not exist. A Mini alone can show state and jump; it cannot show detail or run a verb list.
+- A Mini-only setup has no dials and no strip, so everything ADR-0007 places there — branch, ticket list, pull-request state, pane browsing, the verb list — does not exist. A Mini alone can show state and jump; it cannot show detail or run a verb list.
 - **The XL's layout is rig-independent.** Attaching or detaching a Mini adds or removes the global surface but never reflows the XL, which removes a whole class of runtime layout complexity. The plugin still tracks `onDeviceDidConnect` and `onDeviceDidDisconnect`, but only to decide whether the Mini is being driven.
 - On an XL-only rig the global surfaces have no home; the cross-workstream queue is reached through per-channel controls, and the overflow count renders on the rightmost strip region.
 - Keys are authored at 144×144 on both devices and Stream Deck scales down as needed, so the existing key canvas, type scale, and 18px physical type floor carry over unchanged. Dial regions stay 200×100 on the XL. The XL's dial and strip placement relative to the key grid remains undocumented; the six 200px region count is inferred from the confirmed 1200px width and six dials.

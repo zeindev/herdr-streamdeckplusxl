@@ -5,7 +5,7 @@ import { READING_CELLS } from "./strip.js";
 import type { Workstream } from "./workstream.js";
 
 /**
- * Dial 1: navigate a workstream's panes and attention, then scrub scrollback
+ * Dial 1: navigate a workstream's panes and attention, then focus a pane
  * (ADR-0007, `-u5d`).
  *
  * `state.ts` owns *when* this fires — a rotate, a push, a timeout tick — and
@@ -47,23 +47,17 @@ export function dialItemsOf(workstream: Workstream, panes: readonly PaneSnapshot
 /**
  * Where dial 1 stands for one channel.
  *
- * `browse` previews an item without touching Herdr — turning is free to
- * explore. `scrub` is what pushing a browsed pane commits to: the pane is
- * focused, and the same dial now moves a scrollback offset instead of a
- * selection. The two are exclusive because a channel's dial is one physical
- * control with one job at a time.
+ * A selection previews an item without touching Herdr — turning is free to
+ * explore. Pushing a pane focuses it and clears the preview, returning the
+ * strip to its permanent status.
  */
-export type DialSelection =
-  | { mode: "browse"; index: number; at: number }
-  | { mode: "scrub"; paneId: string; offset: number; at: number };
+export type DialSelection = { mode: "browse"; index: number; at: number };
 
 /**
  * How long a browsed-but-unpressed selection stands before reverting to the
  * channel's ordinary strip on its own — long enough to read the preview and
  * decide, short enough that walking away does not leave the strip stuck
- * showing a choice that was never made. `scrub` never uses this: pressing
- * into it was a deliberate commit, not a preview, so nothing about it decays
- * on a timer (`revertIdleDial1`).
+ * showing a choice that was never made.
  */
 export const DIAL_PREVIEW_TIMEOUT_MS = 4000;
 
@@ -77,43 +71,24 @@ export const DIAL_PREVIEW_TIMEOUT_MS = 4000;
  */
 export function rotateBrowse(current: DialSelection | null, items: readonly DialItem[], ticks: number, at: number): DialSelection | null {
   if (items.length === 0) return null;
-  const from = current?.mode === "browse" ? current.index : -1;
+  const from = current?.index ?? -1;
   return { mode: "browse", index: wrap(from + ticks, items.length), at };
 }
 
-/** Moves a scrub's offset, never past live (0). Herdr is left to say when history runs out at the other end. */
-export function rotateScrub(
-  current: Extract<DialSelection, { mode: "scrub" }>,
-  ticks: number,
-  at: number
-): Extract<DialSelection, { mode: "scrub" }> {
-  return { ...current, offset: Math.max(0, current.offset + ticks), at };
-}
-
 /**
- * What pushing a browsed item commits to: `scrub`, focused on its pane. A
- * paneless attention item has nothing to focus — it says so by pushing
- * nothing back, the same honesty the queue key already has for the same case
- * (`-4w7`).
+ * The pane a push should focus. A paneless attention item has nothing to
+ * focus — it says so by returning null, the same honesty the queue key already
+ * has for the same case (`-4w7`).
  */
-export function pressBrowse(
-  current: Extract<DialSelection, { mode: "browse" }>,
-  items: readonly DialItem[],
-  at: number
-): Extract<DialSelection, { mode: "scrub" }> | null {
+export function selectedPane(current: DialSelection, items: readonly DialItem[]): PaneSnapshot | null {
   const item = items[wrap(current.index, items.length)];
   if (!item || item.kind !== "pane") return null;
-  return { mode: "scrub", paneId: item.pane.pane_id, offset: 0, at };
+  return item.pane;
 }
 
-/** What pushing while scrubbing does: return to live output. */
-export function pressScrub(current: Extract<DialSelection, { mode: "scrub" }>, at: number): Extract<DialSelection, { mode: "scrub" }> {
-  return { ...current, offset: 0, at };
-}
-
-/** Clears a browsed selection that has stood past its timeout; leaves `scrub` and anything fresher alone. */
+/** Clears a browsed selection that has stood past its timeout. */
 export function revertIdleDial1(selection: DialSelection | null, at: number): DialSelection | null {
-  if (selection?.mode !== "browse") return selection;
+  if (!selection) return null;
   return at - selection.at > DIAL_PREVIEW_TIMEOUT_MS ? null : selection;
 }
 
@@ -136,7 +111,6 @@ function dialItemLabel(item: DialItem): string {
  */
 export function dial1Notice(selection: DialSelection | null, items: readonly DialItem[]): string | null {
   if (!selection) return null;
-  if (selection.mode === "scrub") return truncateMiddle(selection.offset === 0 ? "LIVE" : `SCRUB -${selection.offset}`, READING_CELLS);
   const item = items[wrap(selection.index, items.length)];
   if (!item) return null;
   return truncateMiddle(`> ${dialItemLabel(item)}`, READING_CELLS);

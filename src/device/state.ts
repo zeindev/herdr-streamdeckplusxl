@@ -28,11 +28,9 @@ import {
   DIAL_PREVIEW_TIMEOUT_MS,
   dial1Notice,
   dialItemsOf,
-  pressBrowse,
-  pressScrub,
   revertIdleDial1,
   rotateBrowse,
-  rotateScrub,
+  selectedPane,
   type DialSelection
 } from "./dial.js";
 import {
@@ -130,10 +128,8 @@ export type State = {
   recentFocus: readonly string[];
   /**
    * Each channel's own dial 1 (`-u5d`), by channel index — browsing its
-   * workstream's panes and attention, or scrubbing a pane it was pushed into.
-   * Ephemeral like `pressed`, `armed`, and `recentFocus`: a browsed selection
-   * is a preview, not geography, and even a committed scrub is only ever
-   * about a pane that exists right now.
+   * workstream's panes and attention. Ephemeral like `pressed`, `armed`, and
+   * `recentFocus`: a browsed selection is a preview, not geography.
    */
   dial1: ReadonlyArray<DialSelection | null>;
   /**
@@ -292,10 +288,9 @@ export function reduce(state: State, event: DeviceEvent): Step {
           acknowledged,
           // A pane that is gone can never be jumped back to.
           recentFocus: keepKnownRecent(state.recentFocus, snapshot),
-          // A scrub scrubbing a pane that is gone has nothing left to scrub;
-          // a browsed selection is left alone, since its index still resolves
-          // against whatever the channel's items are once redrawn.
-          dial1: state.dial1.map((selection) => keepKnownDial1(selection, snapshot)),
+          // A browsed selection is left alone: its index still resolves against
+          // whatever the channel's items are once redrawn.
+          dial1: state.dial1,
           reservedChannel,
           resyncRequestedAt: null
         },
@@ -489,7 +484,7 @@ export function reduce(state: State, event: DeviceEvent): Step {
       const channel = channelOfEncoder(layout, event.encoder);
       const slots = cycle(state.slots, channel, presentWorkstreams(state));
       // The channel now shows a different workstream, or none at all, so
-      // whatever either dial was browsing, scrubbing, or arming there no
+      // whatever either dial was browsing or arming there no
       // longer applies.
       const reassigned = !sameSlots(state.slots, slots);
       const dial1 = reassigned ? withDial1(state.dial1, channel, null) : state.dial1;
@@ -513,7 +508,7 @@ export function reduce(state: State, event: DeviceEvent): Step {
       const layout = layoutOf(state, event.deviceId);
       if (!layout || layout.kind !== "xl") return { state, commands: [] };
       const channel = channelOfEncoder(layout, event.encoder);
-      return isDial1(layout, event.encoder) ? applyDial1Press(state, channel, event.at) : applyDial2Press(state, channel, event.at);
+      return isDial1(layout, event.encoder) ? applyDial1Press(state, channel) : applyDial2Press(state, channel, event.at);
     }
 
     case "encoder-up":
@@ -555,62 +550,34 @@ export function dial1NoticeOf(state: State, channel: number): string | null {
 }
 
 /**
- * Turning dial 1: moves the browsed selection, or — once a push has committed
- * to a pane — moves its scrollback offset instead. Browsing never asks Herdr
- * for anything; scrubbing does, because scrubbing *is* asking Herdr for a
- * different window of a pane's history to show.
+ * Turning dial 1 moves the browsed selection. Browsing never asks Herdr for
+ * anything; a push is the explicit commit.
  */
 function applyDial1Rotate(state: State, channel: number, ticks: number, at: number): Step {
   const { workstream, items } = dial1ItemsOf(state, channel);
   if (!workstream) return { state, commands: [] };
 
-  const current = state.dial1[channel];
-  if (current?.mode === "scrub") {
-    const next = rotateScrub(current, ticks, at);
-    const dial1 = withDial1(state.dial1, channel, next);
-    return { state: { ...state, dial1 }, commands: [scrollCommand(next.paneId, next.offset)] };
-  }
-
-  const next = rotateBrowse(current, items, ticks, at);
+  const next = rotateBrowse(state.dial1[channel], items, ticks, at);
   return { state: { ...state, dial1: withDial1(state.dial1, channel, next) }, commands: [] };
 }
 
 /**
- * Pushing dial 1: commits a browsed item to `scrub` and focuses its pane, or,
- * already scrubbing, returns that pane to live output. Focusing here is
- * `pane.focus`, the same request a pane key's own tap already sends, so the
+ * Pushing dial 1 focuses a browsed pane and clears the preview. Focusing here
+ * is `pane.focus`, the same request a pane key's own tap already sends, so the
  * two paths can never disagree about what "focus" means.
  */
-function applyDial1Press(state: State, channel: number, at: number): Step {
+function applyDial1Press(state: State, channel: number): Step {
   const { workstream, items } = dial1ItemsOf(state, channel);
   if (!workstream) return { state, commands: [] };
 
   const current = state.dial1[channel];
-  if (current?.mode === "scrub") {
-    if (current.offset === 0) return { state, commands: [] }; // already live; nothing to commit
-    const next = pressScrub(current, at);
-    return { state: { ...state, dial1: withDial1(state.dial1, channel, next) }, commands: [scrollCommand(next.paneId, next.offset)] };
-  }
-  if (current?.mode !== "browse") return { state, commands: [] };
+  if (!current) return { state, commands: [] };
 
-  const next = pressBrowse(current, items, at);
-  if (!next) return { state, commands: [] }; // the browsed item named no pane to focus
-  const dial1 = withDial1(state.dial1, channel, next);
-  const recentFocus = withRecentFocus(state.recentFocus, next.paneId);
-  return { state: { ...state, dial1, recentFocus }, commands: [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: next.paneId } }] };
-}
-
-/**
- * Asks Herdr to show a different window of a pane's scrollback.
- *
- * `pane.scroll` is not in `protocol.ts`'s verified vocabulary — nothing in
- * this repo has confirmed the request side of `PaneInfo.scroll` (ADR-0007)
- * against a live Herdr the way `pane.focus` and `pane.send_keys` already
- * have. `offset` is lines back from live, 0 meaning live itself. Validate
- * both the method name and this shape on hardware before shipping.
- */
-function scrollCommand(paneId: string, offset: number): Command {
-  return { kind: "herdr-request", method: "pane.scroll", params: { pane_id: paneId, offset } };
+  const pane = selectedPane(current, items);
+  if (!pane) return { state, commands: [] }; // the browsed item named no pane to focus
+  const dial1 = withDial1(state.dial1, channel, null);
+  const recentFocus = withRecentFocus(state.recentFocus, pane.pane_id);
+  return { state: { ...state, dial1, recentFocus }, commands: [{ kind: "herdr-request", method: "pane.focus", params: { pane_id: pane.pane_id } }] };
 }
 
 /** Replaces one channel's dial-2 slot, leaving the array's identity alone when nothing changed. */
@@ -1124,12 +1091,6 @@ function keepKnownRecent(recentFocus: readonly string[], snapshot: HerdrSnapshot
   const live = new Set(snapshot.panes.map((pane) => pane.pane_id));
   const kept = recentFocus.filter((paneId) => live.has(paneId));
   return kept.length === recentFocus.length ? recentFocus : kept;
-}
-
-/** Drops a dial-1 scrub whose pane is gone. A browsed selection has no pane to lose. */
-function keepKnownDial1(selection: DialSelection | null, snapshot: HerdrSnapshot): DialSelection | null {
-  if (selection?.mode !== "scrub") return selection;
-  return snapshot.panes.some((pane) => pane.pane_id === selection.paneId) ? selection : null;
 }
 
 /**

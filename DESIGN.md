@@ -63,7 +63,7 @@ The implementation is flat, compact, and terminal-like. Every unused pixel is tr
 - The Stream Deck Mini's 3×2 grid mirrors the same three channels at a glance when attached alone, or becomes the one global surface — belonging to no single workstream — when an XL is attached alongside it. Column order matches the XL's on both, so muscle memory transfers rather than competing.
 - Short, bold monospaced labels; a channel's strip carries the only longer-lived text, and even that is capped readings, not prose.
 - Border weight and pattern carry state; a filled corner mark carries attention, redundantly with a wording change in the same key's footer.
-- Turning a dial previews; pushing commits — except focusing a pane and scrubbing its scrollback, which are themselves what turning does there.
+- Turning a dial previews; pushing commits.
 - Destructive verbs arm on a push and need a second, confirming push within a few seconds; the arm reverts on its own, and any other physical action cancels it early.
 
 **Build limitations:** the current SVGs prefer the system-installed Consolas font and depend on the host renderer honoring literal stroke-dash geometry rather than normalized path lengths. Those are shipped implementation constraints, not canonical typeface or iconography assets.
@@ -175,7 +175,7 @@ A hold on a pane key, wherever an XL is present, replaces that one channel's thr
 
 ### Dial-in-use notice
 
-While dial 1 is browsing or scrubbing, or dial 2 is browsing, armed, or just reported an outcome, the owning channel's strip shows that instead of its permanent readings. Dial 2's own notice wins over dial 1's on the same channel, since it is the one that can be mid-arm on something destructive.
+While dial 1 is browsing, or dial 2 is browsing, armed, or just reported an outcome, the owning channel's strip shows that instead of its permanent readings. Dial 2's own notice wins over dial 1's on the same channel, since it is the one that can be mid-arm on something destructive.
 
 ### Global surface keys (paired Mini)
 
@@ -191,7 +191,7 @@ While dial 1 is browsing or scrubbing, or dial 2 is browsing, armed, or just rep
 - **Do** keep every label short enough to scan at physical-device size.
 - **Do** preserve the true-black field across every key and every strip region.
 - **Do** pair border weight, wording, and stable position with every runtime color.
-- **Do** keep turns as previews and pushes as commits, except focusing a pane and scrubbing its scrollback.
+- **Do** keep turns as previews and pushes as commits.
 
 ### Don't:
 

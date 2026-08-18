@@ -20,7 +20,8 @@ import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 
 const KEY_UUID = "dev.herdr.streamdeck.key";
 const ENCODER_UUID = "dev.herdr.streamdeck.encoder";
-const VERSION = "0.1.0.0";
+const pluginManifest = JSON.parse(readFileSync(new URL("../dev.herdr.streamdeck.sdPlugin/manifest.json", import.meta.url), "utf8"));
+const VERSION = pluginManifest.Version;
 
 /**
  * One profile to generate. Stream Deck documents empty device identities for

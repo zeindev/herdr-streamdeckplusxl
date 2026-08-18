@@ -102,6 +102,7 @@ for (const { name, deviceType, deviceModel } of PROFILES) {
     for (const controller of profilePage(name).Controllers) {
       for (const [coordinate, placed] of Object.entries(controller.Actions)) {
         assert.ok(declared.has(placed.UUID), `${coordinate} places an undeclared action ${placed.UUID}`);
+        assert.equal(placed.Plugin.Version, manifest.Version, `${coordinate} targets a stale plugin version; run npm run profile`);
         assert.equal(placed.States[0].ShowTitle, false, "the plugin draws its own labels");
       }
     }
